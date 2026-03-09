@@ -1,9 +1,11 @@
 package com.heyanle.easybangumi4.ui.common
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,10 +22,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -49,10 +57,27 @@ fun CartoonCardWithCover(
     onClick: (CartoonCover) -> Unit,
     onLongPress: ((CartoonCover) -> Unit)? = null,
 ) {
+    // TV 焦点高亮支持
+    var isFocused by remember { mutableStateOf(false) }
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+        label = "focusBorder"
+    )
+    val scale = if (isFocused) 1.05f else 1f
 
     Column(
         modifier = modifier
+            .scale(scale)
             .clip(RoundedCornerShape(4.dp))
+            .border(
+                width = if (isFocused) 2.dp else 0.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(4.dp)
+            )
+            .onFocusChanged { focusState ->
+                isFocused = focusState.isFocused
+            }
+            .focusable()
             .combinedClickable(
                 onClick = {
                     onClick(cartoonCover)
@@ -126,11 +151,24 @@ fun CartoonStarCardWithCover(
     onClick: (CartoonInfo) -> Unit,
     onLongPress: (CartoonInfo) -> Unit,
 ) {
+    // TV 焦点高亮支持
+    var isFocused by remember { mutableStateOf(false) }
+    val focusBorderColor by animateColorAsState(
+        targetValue = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+        label = "focusBorder"
+    )
+    val focusScale = if (isFocused) 1.05f else 1f
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .scale(focusScale)
             .clip(RoundedCornerShape(4.dp))
+            .border(
+                width = if (isFocused && !selected) 2.dp else 0.dp,
+                color = focusBorderColor,
+                shape = RoundedCornerShape(4.dp)
+            )
             .run {
                 if (selected) {
                     background(MaterialTheme.colorScheme.primary)
@@ -139,6 +177,10 @@ fun CartoonStarCardWithCover(
                 }
             }
             .then(modifier)
+            .onFocusChanged { focusState ->
+                isFocused = focusState.isFocused
+            }
+            .focusable()
             .combinedClickable(
                 onClick = {
                     onClick(cartoon)
@@ -252,18 +294,27 @@ fun CartoonCardWithoutCover(
     onClick: (CartoonCover) -> Unit,
     onLongPress: ((CartoonCover) -> Unit)? = null,
 ) {
+    // TV 焦点高亮支持
+    var isFocusedNoCover by remember { mutableStateOf(false) }
+    val focusScale2 = if (isFocusedNoCover) 1.03f else 1f
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .scale(focusScale2)
             .then(modifier)
             .clip(RoundedCornerShape(4.dp))
             .border(
-                1.dp,
-                if (star) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(
-                    0.6f
-                ),
+                if (isFocusedNoCover) 2.dp else 1.dp,
+                if (isFocusedNoCover) MaterialTheme.colorScheme.primary
+                else if (star) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.outline.copy(0.6f),
                 RoundedCornerShape(4.dp)
             )
+            .onFocusChanged { focusState ->
+                isFocusedNoCover = focusState.isFocused
+            }
+            .focusable()
             .combinedClickable(
                 onClick = {
                     onClick(cartoonCover)
