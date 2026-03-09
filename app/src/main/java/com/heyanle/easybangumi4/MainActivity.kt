@@ -6,7 +6,6 @@ import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -106,7 +105,7 @@ class MainActivity : ComponentActivity() {
                             .let { modifier ->
                                 if (isTv) {
                                     // TV 模式下不清除焦点，保持 D-pad 导航
-                                    modifier.focusable()
+                                    modifier
                                 } else {
                                     modifier.clickable(
                                         indication = null,

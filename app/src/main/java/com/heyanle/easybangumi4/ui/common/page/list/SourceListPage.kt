@@ -300,7 +300,7 @@ fun LazyGridScope.listPageWithCover(
     items(
         count = pagingItems.itemCount,
         key = { index ->
-            pagingItems[index]?.toIdentify() ?: "source_cover_placeholder_$index"
+            pagingItems.peek(index)?.toIdentify() ?: "source_cover_placeholder_$index"
         }
     ) {
         pagingItems[it]?.let { cover ->
@@ -324,7 +324,7 @@ fun LazyStaggeredGridScope.listPageWithoutCover(
     items(
         count = pagingItems.itemCount,
         key = { index ->
-            pagingItems[index]?.toIdentify() ?: "source_text_placeholder_$index"
+            pagingItems.peek(index)?.toIdentify() ?: "source_text_placeholder_$index"
         }
     ) {
         pagingItems[it]?.let { cover ->

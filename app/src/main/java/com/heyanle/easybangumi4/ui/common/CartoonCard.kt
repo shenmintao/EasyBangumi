@@ -63,7 +63,7 @@ fun CartoonCardWithCover(
         targetValue = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
         label = "focusBorder"
     )
-    val scale = if (isFocused) 1.05f else 1f
+    val scale = 1f
 
     Column(
         modifier = modifier
@@ -157,7 +157,7 @@ fun CartoonStarCardWithCover(
         targetValue = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
         label = "focusBorder"
     )
-    val focusScale = if (isFocused) 1.05f else 1f
+    val focusScale = 1f
 
     Column(
         modifier = Modifier
@@ -296,7 +296,7 @@ fun CartoonCardWithoutCover(
 ) {
     // TV 焦点高亮支持
     var isFocusedNoCover by remember { mutableStateOf(false) }
-    val focusScale2 = if (isFocusedNoCover) 1.03f else 1f
+    val focusScale2 = 1f
 
     Column(
         modifier = Modifier
