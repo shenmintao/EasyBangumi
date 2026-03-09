@@ -48,7 +48,6 @@
         android:icon="@mipmap/logo_new"
         android:label="${label_res}"
         android:supportsRtl="true"
-        android:screenOrientation="portrait"
         android:theme="@style/Theme.EasyBangumi"
         tools:targetApi="31">
 
