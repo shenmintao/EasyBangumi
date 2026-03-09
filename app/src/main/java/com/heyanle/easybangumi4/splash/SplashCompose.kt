@@ -54,7 +54,8 @@ fun Splash() {
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            beyondViewportPageCount = controller.realStep.size,
+            beyondViewportPageCount = 1,
+            userScrollEnabled = false,
             verticalAlignment = Alignment.Top,
             state = pagerState,
         ) {
