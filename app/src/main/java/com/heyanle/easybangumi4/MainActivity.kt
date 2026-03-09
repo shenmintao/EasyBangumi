@@ -1,10 +1,12 @@
 package com.heyanle.easybangumi4
 
 import android.os.Bundle
+import android.view.KeyEvent
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -34,6 +36,7 @@ import com.heyanle.easybangumi4.ui.common.LoadingImage
 import com.heyanle.easybangumi4.ui.common.MoeDialogHost
 import com.heyanle.easybangumi4.ui.common.MoeSnackBar
 import com.heyanle.easybangumi4.utils.MediaUtils
+import com.heyanle.easybangumi4.utils.TvUtils
 import com.heyanle.okkv2.core.okkv
 
 
@@ -53,6 +56,9 @@ val LocalFirebaseAnalytics = staticCompositionLocalOf<FirebaseAnalytics?> {
 class MainActivity : ComponentActivity() {
 
     private var firebaseAnalytics: FirebaseAnalytics? = null
+
+    // 是否为TV设备
+    private val isTv by lazy { TvUtils.isTvDevice(this) }
 
     var first by okkv("first_visible", def = true)
     private val launcherBus = LauncherBus(this)
@@ -97,10 +103,18 @@ class MainActivity : ComponentActivity() {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .clickable(
-                                indication = null,
-                                interactionSource = remember { MutableInteractionSource() },
-                                onClick = { focusManager.clearFocus() })
+                            .let { modifier ->
+                                if (isTv) {
+                                    // TV 模式下不清除焦点，保持 D-pad 导航
+                                    modifier.focusable()
+                                } else {
+                                    modifier.clickable(
+                                        indication = null,
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        onClick = { focusManager.clearFocus() }
+                                    )
+                                }
+                            }
                     ) {
                         SourcesHost {
                             Nav()
@@ -116,6 +130,17 @@ class MainActivity : ComponentActivity() {
 
     }
 
+    /**
+     * 处理遥控器按键事件
+     * 确保 D-pad 和媒体按键能正确传递到 Compose 层
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // 让 D-pad 和媒体按键优先由 Compose 处理
+        if (TvUtils.isDpadKey(keyCode) || TvUtils.isMediaKey(keyCode)) {
+            return super.onKeyDown(keyCode, event)
+        }
+        return super.onKeyDown(keyCode, event)
+    }
 
     override fun onResume() {
         super.onResume()

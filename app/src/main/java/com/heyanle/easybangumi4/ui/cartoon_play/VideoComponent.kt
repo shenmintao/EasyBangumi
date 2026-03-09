@@ -102,6 +102,7 @@ import com.heyanle.easybangumi4.utils.logi
 import com.heyanle.easybangumi4.utils.shareImageText
 import com.heyanle.easybangumi4.utils.shareText
 import com.heyanle.easybangumi4.utils.stringRes
+import com.heyanle.easybangumi4.utils.playerDpadControls
 import com.heyanle.okkv2.core.okkv
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -111,6 +112,7 @@ import loli.ball.easyplayer2.BackBtn
 import loli.ball.easyplayer2.BottomControl
 import loli.ball.easyplayer2.BrightVolumeUI
 import loli.ball.easyplayer2.ControlViewModel
+import loli.ball.easyplayer2.DpadVideoController
 import loli.ball.easyplayer2.GestureController
 import loli.ball.easyplayer2.LockBtn
 import loli.ball.easyplayer2.LongTouchUI
@@ -703,6 +705,14 @@ fun VideoControl(
 
             // 加载按钮
             ProgressBox(vm = controlVM)
+
+            // TV 遥控器 D-pad 控制器
+            DpadVideoController(
+                vm = controlVM,
+                onNext = {
+                    cartoonPlayVM.tryNext()
+                }
+            )
         }
     }
 
