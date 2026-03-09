@@ -103,6 +103,7 @@ import com.heyanle.easybangumi4.ui.common.proc.SortState
 import com.heyanle.easybangumi4.ui.main.MainViewModel
 import com.heyanle.easybangumi4.ui.story.local.Local
 import com.heyanle.easybangumi4.ui.story.local.LocalTopAppBar
+import com.heyanle.easybangumi4.utils.TvUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -513,29 +514,31 @@ fun StarList(
     val lazyGridState = rememberLazyGridState()
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+    val isTv = remember { TvUtils.isTvDevice(com.heyanle.easybangumi4.APP) }
     val refreshing = remember {
         mutableStateOf(false)
     }
     val state = rememberPullRefreshState(refreshing.value, onRefresh = {
-        scope.launch {
-            refreshing.value = true
-            onRefresh()
-            delay(500)
-            refreshing.value = false
+        if (!isTv) {
+            scope.launch {
+                refreshing.value = true
+                onRefresh()
+                delay(500)
+                refreshing.value = false
+            }
         }
-
     })
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pullRefresh(state)
+            .let { if (isTv) it else it.pullRefresh(state) }
     ) {
         LazyVerticalGrid(
             modifier = Modifier
                 .fillMaxSize()
                 .run {
-                    if (nestedScrollConnection != null) {
+                    if (nestedScrollConnection != null && !isTv) {
                         nestedScroll(nestedScrollConnection)
                     } else {
                         this
@@ -578,13 +581,15 @@ fun StarList(
                 )
             }
         }
-        PullRefreshIndicator(
-            refreshing.value,
-            state,
-            Modifier.align(Alignment.TopCenter),
-            backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        )
+        if (!isTv) {
+            PullRefreshIndicator(
+                refreshing.value,
+                state,
+                Modifier.align(Alignment.TopCenter),
+                backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
         FastScrollToTopFab(listState = lazyGridState)
     }
 

@@ -725,8 +725,12 @@ fun VideoControl(
             ProgressBox(vm = controlVM)
 
             // TV 遥控器 D-pad 控制器
+            // 当选集/倍速/填充模式面板打开或控制栏显示时，禁用 D-pad 控制器
+            // 让焦点可以自然传递给面板内的按钮
+            val isDpadEnabled = !showEpisodeWin.value && !showSpeedWin.value && !showVideoScaleTypeWin.value && !controlVM.isShowOverlay()
             DpadVideoController(
                 vm = controlVM,
+                enabled = isDpadEnabled,
                 onNext = {
                     cartoonPlayVM.tryNext()
                 }

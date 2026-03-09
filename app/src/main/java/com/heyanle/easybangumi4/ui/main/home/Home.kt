@@ -58,6 +58,7 @@ import com.heyanle.easybangumi4.ui.common.OkImage
 import com.heyanle.easybangumi4.ui.common.page.CartoonPageListTab
 import com.heyanle.easybangumi4.ui.common.page.CartoonPageUI
 import com.heyanle.easybangumi4.ui.main.MainViewModel
+import com.heyanle.easybangumi4.utils.TvUtils
 import kotlinx.coroutines.launch
 import com.heyanle.easy_i18n.R
 import com.heyanle.easybangumi4.navigationSourceManager
@@ -79,6 +80,7 @@ fun Home() {
     val scope = rememberCoroutineScope()
 
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val isTv = remember { TvUtils.isTvDevice(com.heyanle.easybangumi4.APP) }
 
     LaunchedEffect(key1 = state.selectionKey){
         scrollBehavior.state.contentOffset = 0F
@@ -172,7 +174,7 @@ fun Home() {
                     .fillMaxWidth()
                     .weight(1f)
                     .let {
-                        if (!state.isShowLabel) {
+                        if (!state.isShowLabel && !isTv) {
                             it.nestedScroll(scrollBehavior.nestedScrollConnection)
                         } else {
                             it
