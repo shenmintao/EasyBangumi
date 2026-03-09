@@ -2,6 +2,7 @@ package com.heyanle.easybangumi4.ui.cartoon_play
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -12,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -76,6 +78,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -826,6 +829,13 @@ fun LazyGridScope.cartoonEpisodeList(
                 val select =
                     playLine.playLine == playingPlayLine?.playLine && item == playingEpisode
 
+                // TV 焦点高亮支持
+                var isFocused by remember { mutableStateOf(false) }
+                val focusBorderColor by animateColorAsState(
+                    targetValue = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                    label = "episodeFocusBorder"
+                )
+
                 Row(
                     modifier = Modifier
                         .padding(4.dp)
@@ -835,15 +845,29 @@ fun LazyGridScope.cartoonEpisodeList(
                         .background(if (select && selectionMode.value == null) MaterialTheme.colorScheme.secondary else Color.Transparent)
                         .run {
                             if (select && selectionMode.value == null) {
-                                this
+                                border(
+                                    2.dp,
+                                    Color.Transparent,
+                                    RoundedCornerShape(4.dp)
+                                )
+                            } else if (isFocused) {
+                                border(
+                                    2.dp,
+                                    focusBorderColor,
+                                    RoundedCornerShape(4.dp)
+                                )
                             } else {
                                 border(
-                                    1.dp,
+                                    2.dp,
                                     MaterialTheme.colorScheme.outline.copy(0.6f),
                                     RoundedCornerShape(4.dp)
                                 )
                             }
                         }
+                        .onFocusChanged { focusState ->
+                            isFocused = focusState.isFocused
+                        }
+                        .focusable()
                         .combinedClickable(
                             enabled = true,
                             onLongClick = {

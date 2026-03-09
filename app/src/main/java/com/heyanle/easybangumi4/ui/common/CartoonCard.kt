@@ -70,7 +70,7 @@ fun CartoonCardWithCover(
             .scale(scale)
             .clip(RoundedCornerShape(4.dp))
             .border(
-                width = if (isFocused) 2.dp else 0.dp,
+                width = 2.dp,
                 color = borderColor,
                 shape = RoundedCornerShape(4.dp)
             )
@@ -165,8 +165,8 @@ fun CartoonStarCardWithCover(
             .scale(focusScale)
             .clip(RoundedCornerShape(4.dp))
             .border(
-                width = if (isFocused && !selected) 2.dp else 0.dp,
-                color = focusBorderColor,
+                width = 2.dp,
+                color = if (isFocused && !selected) focusBorderColor else Color.Transparent,
                 shape = RoundedCornerShape(4.dp)
             )
             .run {
@@ -305,7 +305,7 @@ fun CartoonCardWithoutCover(
             .then(modifier)
             .clip(RoundedCornerShape(4.dp))
             .border(
-                if (isFocusedNoCover) 2.dp else 1.dp,
+                2.dp,
                 if (isFocusedNoCover) MaterialTheme.colorScheme.primary
                 else if (star) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.outline.copy(0.6f),

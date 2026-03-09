@@ -72,6 +72,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -430,35 +432,51 @@ fun VideoFloat(
             // 滚动到当前播放的视频位置
             val initItem = playLine.sortedEpisodeList.indexOf(playState.episode)
             val state = rememberLazyListState(initItem)
+            val episodeFocusRequester = remember { FocusRequester() }
             LazyColumn(
                 modifier = Modifier
                     .fillMaxHeight()
                     .defaultMinSize(180.dp, Dp.Unspecified)
-                    .background(Color.Black.copy(0.8f)),
+                    .background(Color.Black.copy(0.8f))
+                    .clickable(
+                        onClick = {},
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
                 state = state
             ) {
-                playLine.sortedEpisodeList.forEach {
+                playLine.sortedEpisodeList.forEachIndexed { index, episode ->
                     item {
-                        val checked = playState.episode == it
+                        val checked = playState.episode == episode
+                        val isInitFocusTarget = index == initItem.coerceAtLeast(0)
                         ToggleButton(
                             checked = checked,
                             onClick = {
                                 cartoonPlayViewModel.changePlay(
                                     cartoonSummary = playState.cartoonSummary,
                                     playLineWrapper = playLine,
-                                    episode = it
+                                    episode = episode
                                 )
                             },
                             modifier = Modifier
                                 .fillMaxWidth(0.25f)
                                 .padding(horizontal = 8.dp)
+                                .then(
+                                    if (isInitFocusTarget) Modifier.focusRequester(episodeFocusRequester)
+                                    else Modifier
+                                )
                         ) {
-                            Text(it.label)
+                            Text(episode.label)
                         }
                     }
                 }
+            }
+            LaunchedEffect(Unit) {
+                try {
+                    episodeFocusRequester.requestFocus()
+                } catch (_: Exception) {}
             }
         }
     }
