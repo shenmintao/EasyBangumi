@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.heyanle.easybangumi4.APP
 import com.heyanle.easybangumi4.source_api.component.page.SourcePage
 import com.heyanle.easybangumi4.ui.common.FastScrollToTopFab
 import com.heyanle.easybangumi4.ui.common.page.list.SourceListPage
@@ -34,6 +35,7 @@ import com.heyanle.easybangumi4.ui.common.page.list.SourceListViewModel
 import com.heyanle.easybangumi4.ui.common.page.list.SourceListViewModelFactory
 import com.heyanle.easybangumi4.ui.common.page.listgroup.SourceListPageGroup
 import com.heyanle.easybangumi4.ui.common.cover_star.CoverStarViewModel
+import com.heyanle.easybangumi4.utils.TvUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -54,19 +56,24 @@ fun CartoonPageUI(
             val lazyStaggeredGridState = rememberLazyStaggeredGridState()
             val vm =
                 viewModel<SourceListViewModel>(factory = SourceListViewModelFactory(cartoonPage))
+            val isTv = remember { TvUtils.isTvDevice(APP) }
             val state = rememberPullRefreshState(refreshing, onRefresh = {
-                scope.launch {
-                    refreshing = true
-                    vm.refresh()
-                    delay(500)
-                    refreshing = false
+                if (!isTv) {
+                    scope.launch {
+                        refreshing = true
+                        vm.refresh()
+                        delay(500)
+                        refreshing = false
+                    }
                 }
             })
 
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pullRefresh(state)
+                    .let {
+                        if (isTv) it else it.pullRefresh(state)
+                    }
             ) {
                 SourceListPage(
                     coverStarVm = coverStarViewModel,
@@ -75,13 +82,15 @@ fun CartoonPageUI(
                     lazyStaggeredGridState = lazyStaggeredGridState,
                     vm = vm
                 )
-                PullRefreshIndicator(
-                    refreshing,
-                    state,
-                    Modifier.align(Alignment.TopCenter),
-                    backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
+                if (!isTv) {
+                    PullRefreshIndicator(
+                        refreshing,
+                        state,
+                        Modifier.align(Alignment.TopCenter),
+                        backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    )
+                }
                 FastScrollToTopFab(listState = lazyGridState, after = 20)
             }
         }
