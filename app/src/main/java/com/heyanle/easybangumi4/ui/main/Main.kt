@@ -3,12 +3,14 @@ package com.heyanle.easybangumi4.ui.main
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.History
@@ -30,11 +32,17 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.heyanle.easybangumi4.ui.common.focusHighlight
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.heyanle.easy_i18n.R
 import com.heyanle.easybangumi4.ui.common.SourceContainer
@@ -209,24 +217,38 @@ fun Main() {
                 }
             }
         }else{
+            // pad/TV 模式：使用独立状态管理页面选择，避免 VerticalPager 的 bringIntoView 导致列表抖动
+            var padPageIndex by remember { mutableStateOf(
+                if (homePageIndexOkkv >= 0 && homePageIndexOkkv < MainPageItems.size) homePageIndexOkkv else 0
+            ) }
             Row {
                 NavigationRail (
                     containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
 
                     ){
                     MainPageItems.forEachIndexed { i, page ->
-                        val select = pagerState.currentPage == i
+                        val select = padPageIndex == i
                         NavigationRailItem(
                             selected = select,
                             onClick = {
-                                scope.launch {
-                                    pagerState.scrollToPage(i)
-                                }
+                                padPageIndex = i
                                 homePageIndexOkkv = i
                             },
                             icon = {page.icon(select) },
                             label = page.tabLabel,
                             alwaysShowLabel = false,
+                            modifier = Modifier
+                                .padding(4.dp)
+                                .onFocusChanged { focusState ->
+                                    // TV 遥控器焦点移动时自动切换页面
+                                    if (focusState.isFocused) {
+                                        padPageIndex = i
+                                        homePageIndexOkkv = i
+                                    }
+                                }
+                                .focusHighlight(
+                                    shape = RoundedCornerShape(12.dp),
+                                ),
                         )
                     }
                 }
@@ -235,8 +257,11 @@ fun Main() {
                         .fillMaxHeight()
                         .weight(1f)
                 ) {
-                    VerticalPager(state = pagerState, userScrollEnabled = false,modifier = Modifier.weight(1f), ) {
-                        MainPageItems[it].content()
+                    // 直接渲染当前页面，避免 VerticalPager 的 bringIntoView 导致列表上下抖动
+                    Box(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        MainPageItems[padPageIndex].content()
                     }
                     if (vm.customBottomBar != null) {
                         vm.customBottomBar?.let { it() }

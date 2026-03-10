@@ -13,6 +13,7 @@ import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.heyanle.easybangumi4.ui.common.focusHighlight
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.heyanle.easybangumi4.APP
 import com.heyanle.easybangumi4.source_api.component.page.SourcePage
@@ -126,6 +128,9 @@ fun CartoonPageListTab(
                 onClick = {
                     onPageClick(i)
                 },
+                modifier = Modifier.focusHighlight(
+                    shape = RoundedCornerShape(8.dp),
+                ),
                 label = { Text(text = page.label) },
                 colors = FilterChipDefaults.filterChipColors(),
             )
