@@ -1,7 +1,6 @@
 package com.heyanle.easybangumi4.ui.common
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -40,7 +39,7 @@ fun CombineClickIconButton(
             .minimumInteractiveComponentSize()
             .size(40.dp)
             .clip(CircleShape)
-            .background(color = Color.Transparent)
+            .focusHighlight(focusedBgColor = Color.White, focusedBgAlpha = 0.3f)
             .combinedClickable(
                 enabled = enabled,
                 onClick = onClick,

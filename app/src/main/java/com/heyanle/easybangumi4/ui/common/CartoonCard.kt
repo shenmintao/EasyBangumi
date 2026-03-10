@@ -1,11 +1,9 @@
 package com.heyanle.easybangumi4.ui.common
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
@@ -59,25 +56,18 @@ fun CartoonCardWithCover(
 ) {
     // TV 焦点高亮支持
     var isFocused by remember { mutableStateOf(false) }
-    val borderColor by animateColorAsState(
-        targetValue = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
-        label = "focusBorder"
-    )
-    val scale = 1f
 
     Column(
         modifier = modifier
-            .scale(scale)
             .clip(RoundedCornerShape(4.dp))
             .border(
                 width = 2.dp,
-                color = borderColor,
+                color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
                 shape = RoundedCornerShape(4.dp)
             )
             .onFocusChanged { focusState ->
                 isFocused = focusState.isFocused
             }
-            .focusable()
             .combinedClickable(
                 onClick = {
                     onClick(cartoonCover)
@@ -129,7 +119,8 @@ fun CartoonCardWithCover(
         Text(
             style = MaterialTheme.typography.bodySmall,
             text = cartoonCover.title,
-            maxLines = 4,
+            minLines = 2,
+            maxLines = 2,
             textAlign = TextAlign.Start,
             overflow = TextOverflow.Ellipsis,
         )
@@ -153,20 +144,14 @@ fun CartoonStarCardWithCover(
 ) {
     // TV 焦点高亮支持
     var isFocused by remember { mutableStateOf(false) }
-    val focusBorderColor by animateColorAsState(
-        targetValue = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
-        label = "focusBorder"
-    )
-    val focusScale = 1f
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .scale(focusScale)
             .clip(RoundedCornerShape(4.dp))
             .border(
                 width = 2.dp,
-                color = if (isFocused && !selected) focusBorderColor else Color.Transparent,
+                color = if (isFocused && !selected) MaterialTheme.colorScheme.primary else Color.Transparent,
                 shape = RoundedCornerShape(4.dp)
             )
             .run {
@@ -180,7 +165,6 @@ fun CartoonStarCardWithCover(
             .onFocusChanged { focusState ->
                 isFocused = focusState.isFocused
             }
-            .focusable()
             .combinedClickable(
                 onClick = {
                     onClick(cartoon)
@@ -276,6 +260,7 @@ fun CartoonStarCardWithCover(
         Text(
             style = MaterialTheme.typography.bodySmall,
             text = cartoon.name,
+            minLines = 2,
             maxLines = 2,
             textAlign = TextAlign.Start,
             overflow = TextOverflow.Ellipsis,
@@ -296,12 +281,10 @@ fun CartoonCardWithoutCover(
 ) {
     // TV 焦点高亮支持
     var isFocusedNoCover by remember { mutableStateOf(false) }
-    val focusScale2 = 1f
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .scale(focusScale2)
             .then(modifier)
             .clip(RoundedCornerShape(4.dp))
             .border(
@@ -314,7 +297,6 @@ fun CartoonCardWithoutCover(
             .onFocusChanged { focusState ->
                 isFocusedNoCover = focusState.isFocused
             }
-            .focusable()
             .combinedClickable(
                 onClick = {
                     onClick(cartoonCover)

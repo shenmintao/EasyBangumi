@@ -55,6 +55,7 @@ import com.heyanle.easybangumi4.plugin.js.source.getIconWithAsyncOrDrawable
 import com.heyanle.easybangumi4.plugin.source.LocalSourceBundleController
 import com.heyanle.easybangumi4.ui.common.EmptyPage
 import com.heyanle.easybangumi4.ui.common.OkImage
+import com.heyanle.easybangumi4.ui.common.focusHighlight
 import com.heyanle.easybangumi4.ui.common.page.CartoonPageListTab
 import com.heyanle.easybangumi4.ui.common.page.CartoonPageUI
 import com.heyanle.easybangumi4.ui.main.MainViewModel
@@ -268,7 +269,10 @@ fun HomeTopAppBar(
     TopAppBar(
         scrollBehavior = scrollBehavior,
         navigationIcon = {
-            IconButton(onClick = { onChangeClick() }) {
+            IconButton(
+                onClick = { onChangeClick() },
+                modifier = Modifier.focusHighlight()
+            ) {
                 Icon(
                     Icons.Filled.SyncAlt,
                     stringResource(id = com.heyanle.easy_i18n.R.string.source)
@@ -277,7 +281,10 @@ fun HomeTopAppBar(
         },
         title = { Text(text = title) },
         actions = {
-            IconButton(onClick = { onSearchClick() }) {
+            IconButton(
+                onClick = { onSearchClick() },
+                modifier = Modifier.focusHighlight()
+            ) {
                 Icon(
                     Icons.Filled.Search,
                     contentDescription = stringResource(id = com.heyanle.easy_i18n.R.string.search)

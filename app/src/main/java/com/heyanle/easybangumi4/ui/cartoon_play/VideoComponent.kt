@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -67,6 +68,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +76,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -94,6 +97,7 @@ import com.heyanle.easybangumi4.ui.cartoon_play.view_model.CartoonPlayViewModel
 import com.heyanle.easybangumi4.ui.cartoon_play.view_model.CartoonPlayingViewModel
 import com.heyanle.easybangumi4.ui.cartoon_play.view_model.DetailedViewModel
 import com.heyanle.easybangumi4.ui.common.CombineClickIconButton
+import com.heyanle.easybangumi4.ui.common.focusHighlight
 import com.heyanle.easybangumi4.ui.common.ErrorPage
 import com.heyanle.easybangumi4.ui.common.LoadingPage
 import com.heyanle.easybangumi4.ui.common.ToggleButton
@@ -766,7 +770,7 @@ fun FullScreenRightToolBar(
                 Box(modifier = Modifier
                     .padding(4.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.6f))
+                    .focusHighlight(focusedBgColor = Color.White, focusedBgAlpha = 0.5f, unfocusedBgColor = Color.Black.copy(alpha = 0.6f))
                     .clickable {
                         onImage()
                     }
@@ -782,7 +786,7 @@ fun FullScreenRightToolBar(
                 Box(modifier = Modifier
                     .padding(4.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.6f))
+                    .focusHighlight(focusedBgColor = Color.White, focusedBgAlpha = 0.5f, unfocusedBgColor = Color.Black.copy(alpha = 0.6f))
                     .clickable {
                         onShowRecorded()
                     }
@@ -854,9 +858,13 @@ fun FullScreenVideoTopBar(
             Text(text = "${br.electricity.value}%", color = Color.White)
             Spacer(modifier = Modifier.size(16.dp))
 
-            IconButton(onClick = {
-                onMoreClick()
-            }) {
+            IconButton(
+                onClick = {
+                    onMoreClick()
+                },
+                modifier = Modifier
+                    .focusHighlight(focusedBgColor = Color.White, focusedBgAlpha = 0.3f)
+            ) {
                 Icon(
                     Icons.Filled.MoreVert,
                     tint = Color.White,
@@ -891,7 +899,11 @@ fun NormalVideoTopBar(
             Spacer(modifier = Modifier.weight(1f))
 
             if (showTools) {
-                IconButton(onClick = onSpeed) {
+                IconButton(
+                    onClick = onSpeed,
+                    modifier = Modifier
+                        .focusHighlight(focusedBgColor = Color.White, focusedBgAlpha = 0.3f)
+                ) {
                     Icon(
                         Icons.Filled.Speed,
                         tint = Color.White,
@@ -900,7 +912,11 @@ fun NormalVideoTopBar(
                 }
 
                 if (showDlna) {
-                    IconButton(onClick = onDlna) {
+                    IconButton(
+                        onClick = onDlna,
+                        modifier = Modifier
+                            .focusHighlight(focusedBgColor = Color.White, focusedBgAlpha = 0.3f)
+                    ) {
                         Icon(
                             Icons.Filled.CastConnected,
                             tint = Color.White,
@@ -951,6 +967,7 @@ fun EasyVideoBottomControl(
                     Icons.Filled.SkipNext,
                     modifier = Modifier
                         .clip(CircleShape)
+                        .focusHighlight(focusedBgColor = Color.White, focusedBgAlpha = 0.3f)
                         .clickable {
                             onNext()
                         }
@@ -989,6 +1006,7 @@ fun EasyVideoBottomControl(
                 Text(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
+                        .focusHighlight(shape = RoundedCornerShape(4.dp), focusedBgColor = Color.White, focusedBgAlpha = 0.3f)
                         .clickable {
                             onShowEpisodeWin()
                         }
@@ -999,6 +1017,7 @@ fun EasyVideoBottomControl(
                 Text(
                     modifier = Modifier
                         .clip(RoundedCornerShape(4.dp))
+                        .focusHighlight(shape = RoundedCornerShape(4.dp), focusedBgColor = Color.White, focusedBgAlpha = 0.3f)
                         .clickable {
                             onSHowSpeedWin()
                         }
@@ -1014,6 +1033,7 @@ fun EasyVideoBottomControl(
                 else Icons.Filled.OpenInFull,
                 modifier = Modifier
                     .clip(CircleShape)
+                    .focusHighlight(focusedBgColor = Color.White, focusedBgAlpha = 0.3f)
                     .clickable {
                         vm.onFullScreen(!vm.isFullScreen, ctx = ctx)
                     }

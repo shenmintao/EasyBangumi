@@ -89,6 +89,7 @@ import com.heyanle.easybangumi4.navigationDetailed
 import com.heyanle.easybangumi4.navigationMigrate
 import com.heyanle.easybangumi4.plugin.source.LocalSourceBundleController
 import com.heyanle.easybangumi4.ui.common.CartoonStarCardWithCover
+import com.heyanle.easybangumi4.ui.common.focusHighlight
 import com.heyanle.easybangumi4.ui.common.EasyDeleteDialog
 import com.heyanle.easybangumi4.ui.common.EasyMutiSelectionDialog
 import com.heyanle.easybangumi4.ui.common.EasyMutiSelectionDialogStar
@@ -670,9 +671,12 @@ fun StarTopAppBar(
         scrollBehavior = scrollBehavior,
         navigationIcon = {
             if (isSearch) {
-                IconButton(onClick = {
-                    onSearchExit()
-                }) {
+                IconButton(
+                    onClick = {
+                        onSearchExit()
+                    },
+                    modifier = Modifier.focusHighlight()
+                ) {
                     Icon(
                         imageVector = Icons.Filled.ArrowBack, stringResource(id = R.string.back)
                     )
@@ -723,34 +727,46 @@ fun StarTopAppBar(
         },
         actions = {
             if (!isSearch) {
-                IconButton(onClick = {
-                    onSearchClick()
-                }) {
+                IconButton(
+                    onClick = {
+                        onSearchClick()
+                    },
+                    modifier = Modifier.focusHighlight()
+                ) {
                     Icon(
                         imageVector = Icons.Filled.Search, stringResource(id = R.string.search)
                     )
                 }
 
-                IconButton(onClick = {
-                    onFilterClick()
-                }) {
+                IconButton(
+                    onClick = {
+                        onFilterClick()
+                    },
+                    modifier = Modifier.focusHighlight()
+                ) {
                     Icon(
                         imageVector = Icons.Filled.FilterAlt, stringResource(id = R.string.filter),
                         tint = if (isFilter) MaterialTheme.colorScheme.primary else LocalContentColor.current
                     )
                 }
 
-                IconButton(onClick = {
-                    onUpdate()
-                }) {
+                IconButton(
+                    onClick = {
+                        onUpdate()
+                    },
+                    modifier = Modifier.focusHighlight()
+                ) {
                     Icon(
                         imageVector = Icons.Filled.Update, stringResource(id = R.string.update)
                     )
                 }
             } else if (text.isNotEmpty()) {
-                IconButton(onClick = {
-                    onTextChange("")
-                }) {
+                IconButton(
+                    onClick = {
+                        onTextChange("")
+                    },
+                    modifier = Modifier.focusHighlight()
+                ) {
                     Icon(
                         imageVector = Icons.Filled.Clear, stringResource(id = R.string.clear)
                     )
