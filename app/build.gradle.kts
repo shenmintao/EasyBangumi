@@ -28,12 +28,26 @@ runCatching {
     // it.printStackTrace()
 }
 
+val localProps = Properties()
+runCatching {
+    localProps.load(project.rootProject.file("local.properties").inputStream())
+}
+
 val packageName = if (release) "com.heyanle.easybangumi4" else "com.heyanle.easybangumi4.debug"
 val labelNameRes = if (release) "@string/app_name" else "纯纯看番 Debug"
 
 android {
     namespace =  "com.heyanle.easybangumi4"
     compileSdk = Android.compileSdk
+
+    signingConfigs {
+        create("release") {
+            storeFile = file(localProps.getProperty("KEYSTORE_FILE", System.getenv("KEYSTORE_FILE") ?: "easybangumi.jks"))
+            storePassword = localProps.getProperty("KEYSTORE_PASSWORD", System.getenv("KEYSTORE_PASSWORD") ?: "")
+            keyAlias = localProps.getProperty("KEY_ALIAS", System.getenv("KEY_ALIAS") ?: "")
+            keyPassword = localProps.getProperty("KEY_PASSWORD", System.getenv("KEY_PASSWORD") ?: "")
+        }
+    }
 
     defaultConfig {
 
@@ -101,6 +115,7 @@ android {
 //            }
         }
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = false
             proguardFiles("proguard-rules.pro")
@@ -113,14 +128,14 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
     kotlin {
-        jvmToolchain(17)
+        jvmToolchain(21)
     }
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = "21"
         freeCompilerArgs += listOf(
             "-Xjvm-default=all",
         )

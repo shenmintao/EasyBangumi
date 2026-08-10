@@ -1,11 +1,13 @@
 package loli.ball.easyplayer2
 
 import android.content.res.ColorStateList
+import android.view.KeyEvent
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.SeekBar
 import android.widget.SeekBar.OnSeekBarChangeListener
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -30,10 +32,14 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -93,11 +99,22 @@ fun RowScope.PlayPauseBtn(
     isPlaying: Boolean,
     onClick: (Boolean) -> Unit,
 ) {
+    var isFocused by remember { mutableStateOf(false) }
     Icon(
         if (isPlaying) Icons.Filled.Pause
         else Icons.Filled.PlayArrow,
         modifier = Modifier
             .clip(CircleShape)
+            .onFocusChanged { isFocused = it.isFocused }
+            .border(
+                width = 2.dp,
+                color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = CircleShape
+            )
+            .background(
+                if (isFocused) Color.White.copy(alpha = 0.3f) else Color.Transparent,
+                CircleShape
+            )
             .clickable {
                 onClick(!isPlaying)
             }
@@ -146,6 +163,7 @@ fun RowScope.ViewSeekBar(
                 progressTintList = ColorStateList.valueOf(colors.activeTrackColor.toArgb())
                 progressBackgroundTintList = ColorStateList.valueOf(Color.White.copy(alpha = 0.6f).toArgb())
                 secondaryProgressTintList = ColorStateList.valueOf(Color.White.copy(alpha = 0.8f).toArgb())
+                var isTrackingByKey = false
                 setOnSeekBarChangeListener(object : OnSeekBarChangeListener {
                     override fun onProgressChanged(
                         seekBar: SeekBar?,
@@ -153,14 +171,38 @@ fun RowScope.ViewSeekBar(
                         fromUser: Boolean
                     ) {
                         if (fromUser) {
+                            isTrackingByKey = true
                             onValueChange(progress)
                         }
                     }
-                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                        isTrackingByKey = false
+                    }
                     override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                        isTrackingByKey = false
                         onValueChangeFinish()
                     }
                 })
+                setOnKeyListener { _, keyCode, event ->
+                    if (event.action == KeyEvent.ACTION_UP &&
+                        isTrackingByKey &&
+                        (keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                keyCode == KeyEvent.KEYCODE_ENTER ||
+                                keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)
+                    ) {
+                        isTrackingByKey = false
+                        onValueChangeFinish()
+                        true
+                    } else {
+                        false
+                    }
+                }
+                setOnFocusChangeListener { _, hasFocus ->
+                    if (!hasFocus && isTrackingByKey) {
+                        isTrackingByKey = false
+                        onValueChangeFinish()
+                    }
+                }
             }
         },
         update = {
@@ -199,11 +241,22 @@ fun RowScope.FullScreenBtn(
     isFullScreen: Boolean,
     onClick: (Boolean) -> Unit,
 ) {
+    var isFocused by remember { mutableStateOf(false) }
     Icon(
         if (isFullScreen) Icons.Filled.FullscreenExit
         else Icons.Filled.Fullscreen,
         modifier = Modifier
             .clip(CircleShape)
+            .onFocusChanged { isFocused = it.isFocused }
+            .border(
+                width = 2.dp,
+                color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = CircleShape
+            )
+            .background(
+                if (isFocused) Color.White.copy(alpha = 0.3f) else Color.Transparent,
+                CircleShape
+            )
             .clickable {
                 onClick(!isFullScreen)
             }
@@ -215,7 +268,21 @@ fun RowScope.FullScreenBtn(
 
 @Composable
 fun RowScope.BackBtn(onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
+    var isFocused by remember { mutableStateOf(false) }
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .border(
+                width = 2.dp,
+                color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = CircleShape
+            )
+            .background(
+                if (isFocused) Color.White.copy(alpha = 0.3f) else Color.Transparent,
+                CircleShape
+            )
+    ) {
         Icon(
             Icons.Filled.ArrowBack,
             tint = Color.White,
