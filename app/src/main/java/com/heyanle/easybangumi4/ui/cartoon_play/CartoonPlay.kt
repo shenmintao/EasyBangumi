@@ -45,8 +45,8 @@ import com.heyanle.easybangumi4.cartoon.story.download.runtime.CartoonDownloadDi
 import com.heyanle.easybangumi4.navigationCartoonTag
 import com.heyanle.easybangumi4.navigationSearch
 import com.heyanle.easybangumi4.setting.SettingPreferences
-import com.heyanle.easybangumi4.source_api.entity.CartoonSummary
-import com.heyanle.easybangumi4.source_api.entity.Episode
+import com.heyanle.easybangumi4.plugin.api.entity.CartoonSummary
+import com.heyanle.easybangumi4.plugin.api.entity.Episode
 import com.heyanle.easybangumi4.ui.cartoon_play.cartoon_recorded.CartoonRecorded
 import com.heyanle.easybangumi4.ui.cartoon_play.view_model.CartoonPlayViewModel
 import com.heyanle.easybangumi4.ui.cartoon_play.view_model.CartoonPlayViewModelFactory
@@ -97,6 +97,10 @@ fun CartoonPlay(
         isPad,
         render = playingVM.easyTextRenderer
     )
+
+    LaunchedEffect(summary) {
+        "play-screen source=${summary.source} cartoonId=${summary.id} detailedVm=${System.identityHashCode(detailedVM)} playVm=${System.identityHashCode(playVM)} playingVm=${System.identityHashCode(playingVM)}".logi("PlaybackTrace")
+    }
 
     val detailedState = detailedVM.stateFlow.collectAsState()
     val playState = playVM.curringPlayState.collectAsState()
@@ -606,7 +610,6 @@ fun CartoonPlay(
 
     }
 }
-
 
 
 

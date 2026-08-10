@@ -21,18 +21,17 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.google.firebase.analytics.logEvent
-import com.heyanle.easybangumi4.plugin.source.utils.network.WebViewHelperImpl
 import com.heyanle.easybangumi4.plugin.source.utils.network.WebViewHelperV2Impl
-import com.heyanle.easybangumi4.source_api.entity.CartoonCover
-import com.heyanle.easybangumi4.source_api.entity.CartoonSummary
+import com.heyanle.easybangumi4.plugin.api.entity.CartoonCover
+import com.heyanle.easybangumi4.plugin.api.entity.CartoonSummary
+import com.heyanle.easybangumi4.utils.logi
 import com.heyanle.easybangumi4.theme.NormalSystemBarColor
 import com.heyanle.easybangumi4.ui.WebViewUser
 import com.heyanle.easybangumi4.ui.about.About
 import com.heyanle.easybangumi4.ui.cartoon_play.CartoonPlay
 import com.heyanle.easybangumi4.ui.cartoon_play.view_model.CartoonPlayViewModel
 import com.heyanle.easybangumi4.ui.dlna.Dlna
-import com.heyanle.easybangumi4.ui.extension_push.ExtensionPush
-import com.heyanle.easybangumi4.ui.extension_push.ExtensionPushV2
+import com.heyanle.easybangumi4.ui.source_push.SourcePush
 import com.heyanle.easybangumi4.ui.story.download.Download
 import com.heyanle.easybangumi4.ui.main.Main
 import com.heyanle.easybangumi4.ui.main.history.History
@@ -94,9 +93,7 @@ const val STORAGE = "storage"
 
 const val STORY = "story"
 
-const val EXTENSION_PUSH = "extension_push"
-
-const val EXTENSION_PUSH_V2 = "extension_push_v2"
+const val SOURCE_PUSH = "source_push"
 
 fun NavHostController.navigationSearch(
     defSourceKey: String,
@@ -117,6 +114,7 @@ fun NavHostController.navigationSourceHome(key: String) {
 }
 
 fun NavHostController.navigationDetailed(id: String, url: String, source: String) {
+    "detail-navigation source=$source cartoonId=$id url=$url".logi("PlaybackTrace")
     val el = URLEncoder.encode(url, "utf-8")
     val ed = URLEncoder.encode(id, "utf-8")
     val es = URLEncoder.encode(source, "utf-8")
@@ -125,6 +123,7 @@ fun NavHostController.navigationDetailed(id: String, url: String, source: String
 }
 
 fun NavHostController.navigationDetailed(cartoonCover: CartoonCover) {
+    "detail-navigation source=${cartoonCover.source} cartoonId=${cartoonCover.id} url=${cartoonCover.url}".logi("PlaybackTrace")
     val url = URLEncoder.encode(cartoonCover.url, "utf-8")
     val id = URLEncoder.encode(cartoonCover.id, "utf-8")
     val es = URLEncoder.encode(cartoonCover.source, "utf-8")
@@ -143,6 +142,7 @@ fun NavHostController.navigationDetailed(
     episode: Int,
     adviceProgress: Long,
 ) {
+    "detail-navigation source=${cartoonCover.source} cartoonId=${cartoonCover.id} url=${cartoonCover.url} lineIndex=$lineIndex episodeIndex=$episode adviceProgress=$adviceProgress".logi("PlaybackTrace")
     // easyTODO("详情页")
     val url = URLEncoder.encode(cartoonCover.url, "utf-8")
     val id = URLEncoder.encode(cartoonCover.id, "utf-8")
@@ -398,18 +398,12 @@ fun Nav() {
                 Story(defSearchKey)
             }
 
-            composable(EXTENSION_PUSH) {
+            composable(SOURCE_PUSH) {
                 ScreenShowEvent()
                 NormalSystemBarColor()
-                ExtensionPush()
+                SourcePush()
                 //Download()
-                //ExtensionPush()
-            }
-
-            composable(EXTENSION_PUSH_V2) {
-                ScreenShowEvent()
-                NormalSystemBarColor()
-                ExtensionPushV2()
+                //SourcePush()
             }
 
             composable(
@@ -529,3 +523,4 @@ fun Nav() {
     }
 
 }
+

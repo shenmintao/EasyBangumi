@@ -1,6 +1,6 @@
 package com.heyanle.easybangumi4.plugin.source.utils.network.web
 
-import com.heyanle.easybangumi4.plugin.js.utils.WebViewProxyKtWrapper
+import com.heyanle.easybangumi4.plugin.source.js.utils.WebViewProxyKtWrapper
 import com.heyanle.easybangumi4.utils.WebViewManager
 
 /**
@@ -13,9 +13,13 @@ class WebProxyProvider(
 ) {
 
     fun getWebProxy(): WebViewProxyKtWrapper? {
+        return getRawWebProxy()?.let { WebViewProxyKtWrapper(it) }
+    }
+
+    fun getRawWebProxy(): IWebProxy? {
         val webProxy = WebProxyImpl(webViewManager)
-        webProxyManager.addWebProxy(webProxy)
-        return WebViewProxyKtWrapper(webProxy)
+//        webProxyManager.addWebProxy(webProxy)
+        return webProxy
     }
 
 }

@@ -30,15 +30,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.heyanle.easy_i18n.R
+import com.heyanle.easybangumi4.R as AppR
 import com.heyanle.easybangumi4.LocalNavController
 import com.heyanle.easybangumi4.cartoon.story.local.source.LocalSource
 import com.heyanle.easybangumi4.navigationSetting
 import com.heyanle.easybangumi4.navigationSourceConfig
-import com.heyanle.easybangumi4.plugin.js.source.getIconWithAsyncOrDrawable
+import com.heyanle.easybangumi4.plugin.source.js.source.getIconWithAsyncOrDrawable
 import com.heyanle.easybangumi4.plugin.source.ConfigSource
 import com.heyanle.easybangumi4.plugin.source.LocalSourceBundleController
 import com.heyanle.easybangumi4.plugin.source.SourceInfo
-import com.heyanle.easybangumi4.source_api.IconSource
+import com.heyanle.easybangumi4.plugin.api.IconSource
+import com.heyanle.easybangumi4.plugin.api.component.detailed.DetailedComponent
+import com.heyanle.easybangumi4.plugin.api.component.page.PageComponent
+import com.heyanle.easybangumi4.plugin.api.component.play.PlayComponent
+import com.heyanle.easybangumi4.plugin.api.component.search.SearchComponent
 import com.heyanle.easybangumi4.ui.common.OkImage
 import com.heyanle.easybangumi4.ui.common.moeDialogAlert
 import com.heyanle.easybangumi4.ui.common.moeSnackBar
@@ -133,7 +138,7 @@ fun Source() {
                         },
                         onClick = {
                             if (it.source.key == LocalSource.key) {
-                                nav.navigationSetting(SettingPage.LocalExtension)
+                                nav.navigationSetting(SettingPage.LocalSource)
                             } else if(it.sourceInfo is SourceInfo.Loaded && it.config.enable && bundle.preference(it.sourceInfo.source.key) != null){
                                 nav.navigationSourceConfig(it.sourceInfo.source.key)
                             } else if (it.sourceInfo is SourceInfo.Error) {
@@ -174,7 +179,7 @@ fun SourceItem(
             when(sourceInfo) {
                 is SourceInfo.Loaded -> {
                     Text(
-                        text = sourceInfo.source.version,
+                        text = sourceInfo.subtitle(),
                     )
                 }
                 is SourceInfo.Error -> {
@@ -223,8 +228,36 @@ fun SourceItem(
                 crossFade = false,
                 placeholderColor = null,
                 errorColor = null,
+                placeholderRes = AppR.drawable.ic_source_default,
+                errorRes = AppR.drawable.ic_source_default,
             )
         }
     )
 
+}
+
+private fun SourceInfo.Loaded.subtitle(): String {
+    val features = sourceFeatures()
+    return if (features.isEmpty()) {
+        source.version
+    } else {
+        "${source.version} · ${features.joinToString(" · ")}"
+    }
+}
+
+private fun SourceInfo.Loaded.sourceFeatures(): List<String> {
+    val features = mutableListOf<String>()
+    if (componentBundle.get(PageComponent::class) is PageComponent) {
+        features.add("首页")
+    }
+    if (
+        componentBundle.get(PlayComponent::class) is PlayComponent &&
+        componentBundle.get(DetailedComponent::class) is DetailedComponent
+    ) {
+        features.add("播放")
+    }
+    if (componentBundle.get(SearchComponent::class) is SearchComponent) {
+        features.add("搜索")
+    }
+    return features
 }

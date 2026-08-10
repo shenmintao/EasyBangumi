@@ -88,8 +88,9 @@ import com.heyanle.easybangumi4.APP
 import com.heyanle.easybangumi4.LocalNavController
 import com.heyanle.easybangumi4.cartoon.story.local.source.LocalSource
 import com.heyanle.easybangumi4.navigationDlna
-import com.heyanle.easybangumi4.source_api.ParserException
-import com.heyanle.easybangumi4.source_api.component.PlayInfoNeedWebViewCheckBusinessException
+import com.heyanle.easybangumi4.plugin.api.ParserException
+import com.heyanle.easybangumi4.plugin.api.component.BusinessActionType
+import com.heyanle.easybangumi4.plugin.api.component.PlayInfoNeedVerificationBusinessException
 import com.heyanle.easybangumi4.ui.cartoon_play.view_model.CartoonPlayViewModel
 import com.heyanle.easybangumi4.ui.cartoon_play.view_model.CartoonPlayingViewModel
 import com.heyanle.easybangumi4.ui.cartoon_play.view_model.DetailedViewModel
@@ -104,7 +105,7 @@ import com.heyanle.easybangumi4.utils.logi
 import com.heyanle.easybangumi4.utils.shareImageText
 import com.heyanle.easybangumi4.utils.shareText
 import com.heyanle.easybangumi4.utils.stringRes
-import com.heyanle.easybangumi4.utils.playerDpadControls
+import com.heyanle.easybangumi4.utils.TvUtils
 import com.heyanle.okkv2.core.okkv
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -233,15 +234,16 @@ fun VideoFloat(
         Box {
             val inner = (playingState.errorThrowable as? ParserException)?.exception
             if (playingState.errorThrowable is ParserException &&
-                inner is PlayInfoNeedWebViewCheckBusinessException) {
+                inner is PlayInfoNeedVerificationBusinessException) {
+                val isCaptcha = inner.actionType == BusinessActionType.DIALOG_CAPTCHA
                 ErrorPage(modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black),
                     image = com.heyanle.easybangumi4.R.drawable.empty_bocchi,
                     errorMsgColor = Color.White,
-                    errorMsg = "需要人机效验",
+                    errorMsg = if (isCaptcha) "需要输入验证码" else "需要人机效验",
                     other = {
-                        Text(text = "点击跳转效验")
+                        Text(text = if (isCaptcha) "点击输入验证码" else "点击跳转效验")
                     },
                     clickEnable = true,
                     onClick = {
@@ -430,8 +432,10 @@ fun VideoFloat(
             contentAlignment = Alignment.CenterEnd,
         ) {
             // 滚动到当前播放的视频位置
-            val initItem = playLine.sortedEpisodeList.indexOf(playState.episode)
-            val state = rememberLazyListState(initItem)
+            val initialEpisodeIndex = playLine.sortedEpisodeList
+                .indexOf(playState.episode)
+                .coerceAtLeast(0)
+            val state = rememberLazyListState(initialEpisodeIndex)
             val episodeFocusRequester = remember { FocusRequester() }
             LazyColumn(
                 modifier = Modifier
@@ -450,7 +454,7 @@ fun VideoFloat(
                 playLine.sortedEpisodeList.forEachIndexed { index, episode ->
                     item {
                         val checked = playState.episode == episode
-                        val isInitFocusTarget = index == initItem.coerceAtLeast(0)
+                        val isInitFocusTarget = index == initialEpisodeIndex
                         ToggleButton(
                             checked = checked,
                             onClick = {
@@ -546,6 +550,8 @@ fun VideoControl(
 ) {
     val nav = LocalNavController.current
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val isTv = remember(context) { TvUtils.isTvDevice(context) }
     if (sourcePlayState == null) {
         Box(
             Modifier
@@ -724,17 +730,18 @@ fun VideoControl(
             // 加载按钮
             ProgressBox(vm = controlVM)
 
-            // TV 遥控器 D-pad 控制器
-            // 当选集/倍速/填充模式面板打开或控制栏显示时，禁用 D-pad 控制器
-            // 让焦点可以自然传递给面板内的按钮
-            val isDpadEnabled = !showEpisodeWin.value && !showSpeedWin.value && !showVideoScaleTypeWin.value && !controlVM.isShowOverlay()
-            DpadVideoController(
-                vm = controlVM,
-                enabled = isDpadEnabled,
-                onNext = {
-                    cartoonPlayVM.tryNext()
-                }
-            )
+            if (isTv) {
+                // 面板或控制栏显示时交回 Compose 的空间焦点导航。
+                val isDpadEnabled = !showEpisodeWin.value &&
+                        !showSpeedWin.value &&
+                        !showVideoScaleTypeWin.value &&
+                        !controlVM.isShowOverlay()
+                DpadVideoController(
+                    vm = controlVM,
+                    enabled = isDpadEnabled,
+                    onNext = cartoonPlayVM::tryNext,
+                )
+            }
         }
     }
 

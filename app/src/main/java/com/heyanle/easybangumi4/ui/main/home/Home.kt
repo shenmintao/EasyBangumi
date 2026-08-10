@@ -51,7 +51,7 @@ import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.heyanle.easybangumi4.LocalNavController
 import com.heyanle.easybangumi4.navigationSearch
-import com.heyanle.easybangumi4.plugin.js.source.getIconWithAsyncOrDrawable
+import com.heyanle.easybangumi4.plugin.source.js.source.getIconWithAsyncOrDrawable
 import com.heyanle.easybangumi4.plugin.source.LocalSourceBundleController
 import com.heyanle.easybangumi4.ui.common.EmptyPage
 import com.heyanle.easybangumi4.ui.common.OkImage
@@ -61,6 +61,7 @@ import com.heyanle.easybangumi4.ui.main.MainViewModel
 import com.heyanle.easybangumi4.utils.TvUtils
 import kotlinx.coroutines.launch
 import com.heyanle.easy_i18n.R
+import com.heyanle.easybangumi4.R as AppR
 import com.heyanle.easybangumi4.navigationSourceManager
 
 /**
@@ -235,7 +236,9 @@ fun HomeBottomSheet(
                     OkImage(
                         modifier = Modifier.size(32.dp),
                         image = icon?.getIconWithAsyncOrDrawable(),
-                        contentDescription = page.source.label
+                        contentDescription = page.source.label,
+                        placeholderRes = AppR.drawable.ic_source_default,
+                        errorRes = AppR.drawable.ic_source_default,
                     )
                 },
                 trailingContent = {

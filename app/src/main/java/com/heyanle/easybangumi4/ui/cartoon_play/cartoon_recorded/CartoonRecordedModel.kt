@@ -19,7 +19,7 @@ import androidx.media3.effect.Crop
 import androidx.media3.exoplayer.ExoPlayer
 import com.heyanle.easybangumi4.exo.CartoonMediaSourceFactory
 import com.heyanle.easybangumi4.exo.thumbnail.ThumbnailBuffer
-import com.heyanle.easybangumi4.source_api.entity.PlayerInfo
+import com.heyanle.easybangumi4.plugin.api.entity.PlayerInfo
 import com.heyanle.easybangumi4.ui.cartoon_play.cartoon_recorded.clip_video.ClipVideoModel
 import com.heyanle.easybangumi4.ui.cartoon_play.cartoon_recorded.task.CartoonRecordedTaskModel
 import com.heyanle.easybangumi4.utils.logi
@@ -102,7 +102,7 @@ class CartoonRecordedModel(
     // 渲染器
     val textureView: EasyTextureView = EasyTextureView(ctx)
         .apply {
-            setScaleType(MeasureHelper.SCREEN_SCALE_ADAPT)
+            setScaleType(MeasureHelper.SCREEN_SCALE_FOR_HEIGHT)
             setExtSurfaceTextureListener(this@CartoonRecordedModel)
         }
 

@@ -1,7 +1,6 @@
 package com.heyanle.easybangumi4
 
 import android.os.Bundle
-import android.view.KeyEvent
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -127,18 +126,6 @@ class MainActivity : ComponentActivity() {
 
         }
 
-    }
-
-    /**
-     * 处理遥控器按键事件
-     * 确保 D-pad 和媒体按键能正确传递到 Compose 层
-     */
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // 让 D-pad 和媒体按键优先由 Compose 处理
-        if (TvUtils.isDpadKey(keyCode) || TvUtils.isMediaKey(keyCode)) {
-            return super.onKeyDown(keyCode, event)
-        }
-        return super.onKeyDown(keyCode, event)
     }
 
     override fun onResume() {

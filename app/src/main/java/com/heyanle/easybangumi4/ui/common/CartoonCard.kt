@@ -5,7 +5,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,7 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.heyanle.easybangumi4.R
 import com.heyanle.easybangumi4.cartoon.entity.CartoonInfo
 import com.heyanle.easybangumi4.plugin.source.LocalSourceBundleController
-import com.heyanle.easybangumi4.source_api.entity.CartoonCover
+import com.heyanle.easybangumi4.plugin.api.entity.CartoonCover
 
 /**
  * Created by HeYanLe on 2023/2/25 21:04.
@@ -77,7 +76,6 @@ fun CartoonCardWithCover(
             .onFocusChanged { focusState ->
                 isFocused = focusState.isFocused
             }
-            .focusable()
             .combinedClickable(
                 onClick = {
                     onClick(cartoonCover)
@@ -180,7 +178,6 @@ fun CartoonStarCardWithCover(
             .onFocusChanged { focusState ->
                 isFocused = focusState.isFocused
             }
-            .focusable()
             .combinedClickable(
                 onClick = {
                     onClick(cartoon)
@@ -314,7 +311,6 @@ fun CartoonCardWithoutCover(
             .onFocusChanged { focusState ->
                 isFocusedNoCover = focusState.isFocused
             }
-            .focusable()
             .combinedClickable(
                 onClick = {
                     onClick(cartoonCover)

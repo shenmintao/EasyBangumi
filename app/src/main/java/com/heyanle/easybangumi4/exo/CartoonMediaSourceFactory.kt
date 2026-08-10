@@ -4,18 +4,21 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaItem.ClippingConfiguration
 import androidx.media3.common.util.UnstableApi
+import androidx.core.net.toUri
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSink
 import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheKeyFactory
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.offline.DownloadRequest
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.heyanle.easybangumi4.APP
-import com.heyanle.easybangumi4.source_api.entity.PlayerInfo
+import com.heyanle.easybangumi4.plugin.api.entity.PlayerInfo
 
 /**
  * Created by HeYanLe on 2023/8/13 21:21.
@@ -29,6 +32,11 @@ class CartoonMediaSourceFactory(
 
     fun getMediaItem(playerInfo: PlayerInfo): MediaItem {
         return MediaItem.fromUri(playerInfo.uri)
+    }
+
+    fun removeNormalCache(playerInfo: PlayerInfo) {
+        val key = CacheKeyFactory.DEFAULT.buildCacheKey(DataSpec(playerInfo.uri.toUri()))
+        normalCache.removeResource(key)
     }
 
     /**

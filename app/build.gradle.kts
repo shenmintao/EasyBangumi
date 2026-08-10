@@ -78,6 +78,7 @@ android {
 //    }
 
     sourceSets {
+        getByName("main").assets.srcDir(rootProject.file("inner_source"))
         // Adds exported schema location as test app assets.
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
@@ -176,9 +177,7 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 }
 
 dependencies {
-
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
     implementation(androidx.bundles.core)
     androidTestImplementation(androidx.bundles.test.core)
 
@@ -214,6 +213,7 @@ dependencies {
     //implementation(libs.bundles.appcenter)
 
     implementation(libs.jsoup)
+    implementation(libs.jsoup.xpath)
     implementation(libs.gson)
     implementation(libs.moshi)
 
@@ -262,9 +262,9 @@ dependencies {
     implementation(libs.jeff.m3u8)
 
 
-    implementation(project(":EasyPlayer2:easyplayer2"))
+    implementation(project(":easy-player2"))
 
-    implementation(project(":EasyMediaTransformer:easy_transformer"))
+    implementation(project(":easy_transformer"))
 
     implementation(libs.uni.file)
 
