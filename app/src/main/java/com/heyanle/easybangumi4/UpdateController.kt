@@ -12,7 +12,6 @@ import io.ktor.client.request.url
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -20,8 +19,8 @@ import org.json.JSONObject
  */
 object UpdateController {
 
-    const val URL = "https://api.github.com/repos/easybangumiorg/EasyBangumi/releases"
-    const val JUMP_URL = "https://github.com/easybangumiorg/EasyBangumi/releases/latest"
+    const val URL = "https://api.github.com/repos/shenmintao/EasyBangumi/releases/latest"
+    const val JUMP_URL = "https://github.com/shenmintao/EasyBangumi/releases/latest"
     fun checkUpdate() {
         CoroutineProvider.globalMainScope.launch(Dispatchers.IO) {
 
@@ -29,10 +28,10 @@ object UpdateController {
                 val text = KtorUtil.client.get {
                     url(URL)
                 }.bodyAsText()
-                val json = JSONArray(text)
-                val latest = json.getJSONObject(0)
+                val latest = JSONObject(text)
                 val latestTag = latest.getString("tag_name")
-                if (latestTag.isNotEmpty() && latestTag != BuildConfig.VERSION_NAME) {
+                val latestVersion = latestTag.removePrefix("v")
+                if (latestVersion.isNotEmpty() && latestVersion != BuildConfig.VERSION_NAME) {
                     MoeDialogData.AlertDialog(
                         text ={ Text(text = "检测到新版本：$latestTag") },
                         title = null,
