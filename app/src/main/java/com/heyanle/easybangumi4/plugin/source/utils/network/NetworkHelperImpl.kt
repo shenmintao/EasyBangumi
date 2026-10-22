@@ -10,7 +10,7 @@ import com.heyanle.okkv2.core.okkv
  * Created by heyanlin on 2024/6/4.
  */
 class NetworkHelperImpl(
-    private val context: Context
+    private val context: Context,
 ): NetworkHelper {
 
     companion object {
@@ -50,7 +50,7 @@ class NetworkHelperImpl(
         get() {
             if (defaultAndroidUAOKKV.isEmpty()) {
                 try {
-                    val res =  WebSettings.getDefaultUserAgent(context)
+                    val res = WebSettings.getDefaultUserAgent(context)
                     defaultAndroidUAOKKV = res
                     return res
                 } catch (e: Exception) {

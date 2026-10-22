@@ -58,8 +58,14 @@ fun SimpleGestureController(
     modifier: Modifier = Modifier,
     slideFullTime: Long = 300000,
     longTouchText: String = "2x",
+    enableNormalScreenSeekGestures: Boolean = false,
 ) {
-    GestureController(vm, modifier, slideFullTime) {
+    GestureController(
+        vm = vm,
+        modifier = modifier,
+        slideFullTime = slideFullTime,
+        enableNormalScreenSeekGestures = enableNormalScreenSeekGestures,
+    ) {
         BrightVolumeUI()
         SlideUI()
         LongTouchUI(longTouchText)
@@ -75,9 +81,17 @@ fun GestureControllerWithFast(
     fastForwardText: String = "快进",
     fastBackText: String = "快退",
     fastWinDelay: Long = 2000,
-    fastWeight: Float = 0.2f
+    fastWeight: Float = 0.2f,
+    enableNormalScreenSeekGestures: Boolean = false,
 ) {
-    GestureController(vm, modifier, slideFullTime, supportFast = true, fastWeight = fastWeight) {
+    GestureController(
+        vm = vm,
+        modifier = modifier,
+        slideFullTime = slideFullTime,
+        supportFast = true,
+        fastWeight = fastWeight,
+        enableNormalScreenSeekGestures = enableNormalScreenSeekGestures,
+    ) {
         BrightVolumeUI()
         SlideUI()
         LongTouchUI(longTouchText)
@@ -97,6 +111,7 @@ fun GestureController(
     slideFullTime: Long = 300000,
     supportFast: Boolean = false,
     fastWeight: Float = 0.2f,
+    enableNormalScreenSeekGestures: Boolean = false,
     content: @Composable GestureControllerScope.(ControlViewModel) -> Unit,
 ) {
     val ctx = LocalContext.current as Activity
@@ -109,9 +124,19 @@ fun GestureController(
     }
     val brightVolumeUiText = remember { mutableStateOf(0) }
 
-    val enableGuest by remember {
+    val controlsUnlocked by remember {
         derivedStateOf {
-            vm.isFullScreen && vm.controlState != ControlViewModel.ControlState.Locked
+            vm.controlState != ControlViewModel.ControlState.Locked
+        }
+    }
+    val enableSeekGestures by remember {
+        derivedStateOf {
+            controlsUnlocked && (vm.isFullScreen || enableNormalScreenSeekGestures)
+        }
+    }
+    val enableFullscreenGestures by remember {
+        derivedStateOf {
+            controlsUnlocked && vm.isFullScreen
         }
     }
 
@@ -123,17 +148,17 @@ fun GestureController(
             .pointerInput("单机双击", true) {
                 // 双击
                 detectTapGestures(
-                    onTap = {
+                    onTap = { tapOffset ->
                         "onTap".loge("GestureController")
-                        vm.onSingleClick()
+                        vm.onSingleClick(tapOffset.x > viewSize.width / 2f)
                     },
                     onDoubleTap = {
                         "onDoubleTap".loge("GestureController")
                         if (!supportFast) {
                             vm.onPlayPause(!vm.playWhenReady)
-                        } else if (enableGuest && it.x < viewSize.width * fastWeight) {
+                        } else if (enableSeekGestures && it.x < viewSize.width * fastWeight) {
                             vm.fastRewind()
-                        } else if (enableGuest && it.x > viewSize.width * (1 - fastWeight)) {
+                        } else if (enableSeekGestures && it.x > viewSize.width * (1 - fastWeight)) {
                             vm.fastForward()
                         } else {
                             vm.onPlayPause(!vm.playWhenReady)
@@ -142,15 +167,17 @@ fun GestureController(
                     }
                 )
             }
-            .pointerInput("长按倍速", enableGuest) {
-                detectDragGesturesAfterLongPress(
-                    onDragStart = { vm.onLongPress() },
-                    onDragCancel = { vm.onActionUP() },
-                    onDragEnd = { vm.onActionUP() },
-                    onDrag = { _, _ -> }
-                )
+            .pointerInput("长按倍速", enableSeekGestures) {
+                if (enableSeekGestures) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { vm.onLongPress() },
+                        onDragCancel = { vm.onActionUP() },
+                        onDragEnd = { vm.onActionUP() },
+                        onDrag = { _, _ -> }
+                    )
+                }
             }
-            .pointerInput("横向滑动", enableGuest) {
+            .pointerInput("横向滑动", enableSeekGestures) {
                 var horizontalOffset = 0F
                 var oldPosition = 0L
                 // 横向滑动
@@ -169,7 +196,7 @@ fun GestureController(
                     },
                 )
             }
-            .brightVolume(enableGuest, showBrightVolumeUi, brightVolumeTYpe) { type -> // 音量、亮度
+            .brightVolume(enableFullscreenGestures, showBrightVolumeUi, brightVolumeTYpe) { type -> // 音量、亮度
 
                 brightVolumeUiText.value = (when (type) {
                     DragType.BRIGHTNESS -> ctx.windowBrightness
@@ -199,6 +226,7 @@ fun GestureController(
     horizontalDoubleTapWeight: Float = 0.2f,
     verticalDoubleTapWeight: Float = 0.5f,
     topFastTime: Long,
+    enableNormalScreenSeekGestures: Boolean = false,
     content: @Composable GestureControllerScope.(ControlViewModel) -> Unit,
 ) {
     val ctx = LocalContext.current as Activity
@@ -211,9 +239,19 @@ fun GestureController(
     }
     val brightVolumeUiText = remember { mutableStateOf(0) }
 
-    val enableGuest by remember {
+    val controlsUnlocked by remember {
         derivedStateOf {
-            vm.isFullScreen && vm.controlState != ControlViewModel.ControlState.Locked
+            vm.controlState != ControlViewModel.ControlState.Locked
+        }
+    }
+    val enableSeekGestures by remember {
+        derivedStateOf {
+            controlsUnlocked && (vm.isFullScreen || enableNormalScreenSeekGestures)
+        }
+    }
+    val enableFullscreenGestures by remember {
+        derivedStateOf {
+            controlsUnlocked && vm.isFullScreen
         }
     }
 
@@ -225,25 +263,25 @@ fun GestureController(
             .pointerInput("单机双击", true) {
                 // 双击
                 detectTapGestures(
-                    onTap = {
+                    onTap = { tapOffset ->
                         "onTap".loge("GestureController")
-                        vm.onSingleClick()
+                        vm.onSingleClick(tapOffset.x > viewSize.width / 2f)
                     },
                     onDoubleTap = {
                         "onDoubleTap".loge("GestureController")
                         if (vm.controlState == ControlViewModel.ControlState.Locked){
                             return@detectTapGestures
                         }
-                        if (!supportFast || !vm.isFullScreen) {
+                        if (!supportFast || !enableSeekGestures) {
                             vm.onPlayPause(!vm.playWhenReady)
                         } else if (it.x < viewSize.width * horizontalDoubleTapWeight) {
-                            if (it.y < viewSize.height * verticalDoubleTapWeight) {
+                            if (vm.isFullScreen && it.y < viewSize.height * verticalDoubleTapWeight) {
                                 vm.fastRewindTop(topFastTime)
                             } else {
                                 vm.fastRewind()
                             }
                         } else if (it.x > viewSize.width * (1 - horizontalDoubleTapWeight)) {
-                            if (it.y < viewSize.height * verticalDoubleTapWeight) {
+                            if (vm.isFullScreen && it.y < viewSize.height * verticalDoubleTapWeight) {
                                 vm.fastForwardTop(topFastTime)
                             } else {
                                 vm.fastForward()
@@ -255,15 +293,17 @@ fun GestureController(
                     }
                 )
             }
-            .pointerInput("长按倍速", enableGuest) {
-                detectDragGesturesAfterLongPress(
-                    onDragStart = { vm.onLongPress() },
-                    onDragCancel = { vm.onActionUP() },
-                    onDragEnd = { vm.onActionUP() },
-                    onDrag = { _, _ -> }
-                )
+            .pointerInput("长按倍速", enableSeekGestures) {
+                if (enableSeekGestures) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { vm.onLongPress() },
+                        onDragCancel = { vm.onActionUP() },
+                        onDragEnd = { vm.onActionUP() },
+                        onDrag = { _, _ -> }
+                    )
+                }
             }
-            .pointerInput("横向滑动", enableGuest) {
+            .pointerInput("横向滑动", enableSeekGestures) {
                 var horizontalOffset = 0F
                 var oldPosition = 0L
                 // 横向滑动
@@ -282,7 +322,7 @@ fun GestureController(
                     },
                 )
             }
-            .brightVolume(enableGuest, showBrightVolumeUi, brightVolumeTYpe) { type -> // 音量、亮度
+            .brightVolume(enableFullscreenGestures, showBrightVolumeUi, brightVolumeTYpe) { type -> // 音量、亮度
 
                 brightVolumeUiText.value = (when (type) {
                     DragType.BRIGHTNESS -> ctx.windowBrightness
@@ -696,4 +736,3 @@ fun GestureControllerScope.FastUI(
         }
     }
 }
-

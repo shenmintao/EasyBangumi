@@ -55,7 +55,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -397,9 +396,7 @@ fun CartoonStarProcBottomSheet(
                 vm.dialogDismiss()
             },
             shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(
-                3.dp
-            ),
+            containerColor = MaterialTheme.colorScheme.surface,
             content = {
                 CompositionLocalProvider(
                     LocalContentColor provides MaterialTheme.colorScheme.onSurface
@@ -434,7 +431,7 @@ fun CartoonStarProcBottomSheet(
                     }
                     TabPage(
                         pagerModifier = Modifier,
-                        containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
+                        containerColor = MaterialTheme.colorScheme.surface,
                         contentColor = MaterialTheme.colorScheme.onSurface,
                         tabSize = 2,
                         beyondBoundsPageCount = 2,
@@ -510,6 +507,7 @@ fun StarList(
     onRefresh: () -> Unit,
     onStarClick: (CartoonInfo) -> Unit,
     onStarLongPress: (CartoonInfo) -> Unit,
+    v2Presentation: Boolean = false,
 
     ) {
     val lazyGridState = rememberLazyGridState()
@@ -547,9 +545,13 @@ fun StarList(
                 },
             state = lazyGridState,
             columns = GridCells.Adaptive(100.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            contentPadding = PaddingValues(4.dp, 4.dp, 4.dp, 88.dp)
+            verticalArrangement = Arrangement.spacedBy(if (v2Presentation) 14.dp else 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (v2Presentation) 10.dp else 4.dp),
+            contentPadding = if (v2Presentation) {
+                PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 88.dp)
+            } else {
+                PaddingValues(4.dp, 4.dp, 4.dp, 88.dp)
+            },
         ) {
             if (starCartoon.isEmpty()) {
                 item(span = {
@@ -579,6 +581,7 @@ fun StarList(
                         }
                         onStarLongPress(it)
                     },
+                    v2Presentation = v2Presentation,
                 )
             }
         }
@@ -606,7 +609,10 @@ fun StarSelectionBottomBar(
     onUp: () -> Unit,
 ) {
 
-    BottomAppBar(actions = {
+    BottomAppBar(
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        actions = {
         IconButton(onClick = {
             onChangeTag()
         }) {
@@ -636,7 +642,8 @@ fun StarSelectionBottomBar(
             )
         }
 
-    }, floatingActionButton = {
+        },
+        floatingActionButton = {
         FloatingActionButton(
             onClick = { onDelete() },
             containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -644,7 +651,8 @@ fun StarSelectionBottomBar(
         ) {
             Icon(Icons.Filled.Delete, contentDescription = stringResource(id = R.string.delete))
         }
-    })
+        },
+    )
 
 
 }

@@ -8,6 +8,7 @@ import com.heyanle.easybangumi4.base.hekv.HeKV
 import com.heyanle.easybangumi4.base.json.JsonFileProvider
 import com.heyanle.easybangumi4.cartoon.entity.CartoonInfo
 import com.heyanle.easybangumi4.cartoon.repository.db.dao.CartoonInfoDao
+import com.heyanle.easybangumi4.cartoon.story.bound.CartoonEpisodeBinding
 import com.heyanle.easybangumi4.plugin.source.SourceController
 import com.heyanle.easybangumi4.setting.SettingMMKVPreferences
 import com.heyanle.easybangumi4.setting.SettingPreferences
@@ -104,6 +105,9 @@ class RestoreController(
                     },
                     async {
                         restoreSourcePreference(File(targetFolder, BackupController.SourcePrefFolderName))
+                    },
+                    async {
+                        restoreEpisodeBinding(File(targetFolder, BackupController.BoundFolderName))
                     }
                 ).forEach {
                     it.await()
@@ -211,6 +215,53 @@ class RestoreController(
                             )
                         )
                     )
+                    playbackEngine.set(
+                        runCatching {
+                            SettingPreferences.PlaybackEngine.valueOf(
+                                spO.optString(playbackEngine.key(), playbackEngine.get().name)
+                            )
+                        }.getOrDefault(SettingPreferences.PlaybackEngine.EXO_PLAYER)
+                    )
+                    fullscreenControlPosition.set(
+                        runCatching {
+                            SettingPreferences.FullscreenControlPosition.valueOf(
+                                spO.optString(
+                                    fullscreenControlPosition.key(),
+                                    fullscreenControlPosition.get().name,
+                                ),
+                            )
+                        }.getOrDefault(SettingPreferences.FullscreenControlPosition.AUTO)
+                    )
+                    playerCutoutAvoidanceMode.set(
+                        SettingPreferences.PlayerCutoutAvoidanceMode.normalizeForSdk(
+                            runCatching {
+                                SettingPreferences.PlayerCutoutAvoidanceMode.valueOf(
+                                    spO.optString(
+                                        playerCutoutAvoidanceMode.key(),
+                                        playerCutoutAvoidanceMode.get().name,
+                                    ),
+                                )
+                            }.getOrDefault(
+                                SettingPreferences.PlayerCutoutAvoidanceMode.defaultForSdk(),
+                            ),
+                        ),
+                    )
+                    playerCutoutManualPaddingDp.set(
+                        spO.optInt(
+                            playerCutoutManualPaddingDp.key(),
+                            playerCutoutManualPaddingDp.get(),
+                        ).coerceIn(0, 96),
+                    )
+                    mpvAnime4kEnabled.set(
+                        spO.optBoolean(mpvAnime4kEnabled.key(), mpvAnime4kEnabled.get())
+                    )
+                    mpvAnime4kPreset.set(
+                        runCatching {
+                            SettingPreferences.MpvAnime4KPreset.valueOf(
+                                spO.optString(mpvAnime4kPreset.key(), mpvAnime4kPreset.get().name)
+                            )
+                        }.getOrDefault(SettingPreferences.MpvAnime4KPreset.FAST)
+                    )
                     useExternalVideoPlayer.set(
                         spO.optBoolean(
                             useExternalVideoPlayer.key(),
@@ -228,8 +279,14 @@ class RestoreController(
                         spO.optDouble(customSpeed.key(), customSpeed.get().toDouble()).toFloat()
                     )
                     fastWeight.set(spO.optInt(fastWeight.key(), fastWeight.get()))
+                    fastWeightTopMolecule.set(
+                        spO.optInt(fastWeightTopMolecule.key(), fastWeightTopMolecule.get())
+                    )
                     fastSecond.set(spO.optInt(fastSecond.key(), fastSecond.get()))
                     fastTopSecond.set(spO.optInt(fastTopSecond.key(), fastTopSecond.get()))
+                    playerSeekFullWidthTimeMS.set(
+                        spO.optLong(playerSeekFullWidthTimeMS.key(), playerSeekFullWidthTimeMS.get())
+                    )
                     detailedScreenEpisodeGridCount.set(
                         spO.optInt(
                             detailedScreenEpisodeGridCount.key(),
@@ -263,6 +320,17 @@ class RestoreController(
         }
 
     }
+
+    /** 恢复集级绑定注册表；视频文件本身不在备份内，失效绑定由绑定层标记。 */
+    private suspend fun restoreEpisodeBinding(folder: File) {
+        val file = File(folder, BackupController.BoundBindingFileName)
+        if (!file.exists() || !file.canRead()) {
+            return
+        }
+        val bindings = file.readText().jsonTo<List<CartoonEpisodeBinding>>().orEmpty()
+        jsonFileProvider.cartoonEpisodeBinding.set(bindings)
+    }
+
     private suspend fun restoreSourcePreference(folder: File){
         if (!folder.exists()){
             return

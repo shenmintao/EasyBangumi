@@ -5,9 +5,9 @@ package com.heyanle.buildsrc
  * https://github.com/heyanLE
  */
 object Android {
-    const val minSdk = 21
-    const val targetSdk = 34
-    const val compileSdk = 34
+    const val minSdk = 23
+    const val targetSdk = 35
+    const val compileSdk = 35
 
     const val versionCode = 111
     const val versionName = "0.2.0"

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -43,6 +44,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import loli.ball.easyplayer2.utils.TimeUtils
@@ -54,16 +56,19 @@ import loli.ball.easyplayer2.utils.TimeUtils
 
 @Composable
 fun TopControl(
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
     content: @Composable RowScope.() -> Unit,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .background(
                 brush = Brush.verticalGradient(
                     listOf(Color.Black, Color.Transparent),
                 )
-            ),
+            )
+            .padding(contentPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.Start),
         content = content
@@ -131,13 +136,18 @@ fun RowScope.PlayPauseBtn(
 fun RowScope.TimeText(
     time: Long,
     color: Color = Color.Unspecified,
+    timeTextWidth: androidx.compose.ui.unit.Dp? = null,
 ) {
     Text(
         modifier = Modifier
+            .let { if (timeTextWidth != null) it.width(timeTextWidth) else it }
             .padding(4.dp, 0.dp)
             .align(Alignment.CenterVertically),
         text = TimeUtils.toString(time),
-        color = color
+        color = color,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Clip,
     )
 }
 

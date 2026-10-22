@@ -74,7 +74,7 @@ fun DpadVideoController(
                     KeyEvent.KEYCODE_DPAD_RIGHT,
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
                         val newPosition = (vm.position + seekStepMs).coerceAtMost(vm.during)
-                        vm.exoPlayer.seekTo(newPosition)
+                        vm.playerController.seekTo(newPosition)
                         vm.onSingleClick()
                         true
                     }
@@ -82,7 +82,7 @@ fun DpadVideoController(
                     KeyEvent.KEYCODE_DPAD_LEFT,
                     KeyEvent.KEYCODE_MEDIA_REWIND -> {
                         val newPosition = (vm.position - seekStepMs).coerceAtLeast(0L)
-                        vm.exoPlayer.seekTo(newPosition)
+                        vm.playerController.seekTo(newPosition)
                         vm.onSingleClick()
                         true
                     }

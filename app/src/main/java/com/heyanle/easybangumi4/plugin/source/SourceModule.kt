@@ -40,8 +40,6 @@ class SourceModule(
 
     override fun InjectScope.registerInjectables() {
 
-
-
         addSingletonFactory<ISourceController> {
             get<SourceController>()
         }
@@ -75,9 +73,7 @@ class SourceModule(
 
         // NetworkHelper
         addSingletonFactory<NetworkHelperImpl> {
-            NetworkHelperImpl(
-                application
-            )
+            NetworkHelperImpl(application)
         }
         addScopedPerKeyFactory<NetworkHelper, String> {
             get<NetworkHelperImpl>()

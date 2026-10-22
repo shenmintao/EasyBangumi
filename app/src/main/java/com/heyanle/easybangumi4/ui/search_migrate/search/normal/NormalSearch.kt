@@ -60,6 +60,7 @@ import com.heyanle.easybangumi4.plugin.source.LocalSourceBundleController
 import com.heyanle.easybangumi4.plugin.api.entity.CartoonCover
 import com.heyanle.easybangumi4.plugin.api.entity.toIdentify
 import com.heyanle.easybangumi4.ui.common.CartoonCard
+import com.heyanle.easybangumi4.ui.common.CartoonCardWithCover
 import com.heyanle.easybangumi4.ui.common.FastScrollToTopFab
 import com.heyanle.easybangumi4.ui.common.PagingCommon
 import com.heyanle.easybangumi4.ui.common.PagingCommonSourceSearch
@@ -154,21 +155,22 @@ fun ColumnScope.NormalSearch(
 fun NormalSearchPage(
     isShow: Boolean,
     searchViewModel: SearchViewModel,
-    normalSearchViewModel: NormalSearchViewModel
+    normalSearchViewModel: NormalSearchViewModel,
+    v2Presentation: Boolean = false,
 ) {
 
     val keyboard = LocalSoftwareKeyboardController.current
 
-    val realSearchKey by searchViewModel.searchFlow.collectAsState()
+    val searchRequest by searchViewModel.searchRequestFlow.collectAsState()
 
     val starVm = viewModel<CoverStarViewModel>()
     val starSet = starVm.stateFlow.collectAsState().value.identifySet
 
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(key1 = realSearchKey, key2 = isShow) {
-        if (realSearchKey != normalSearchViewModel.curKeyWord && isShow) {
-            normalSearchViewModel.newSearchKey(realSearchKey)
+    LaunchedEffect(key1 = searchRequest, key2 = isShow) {
+        if (isShow) {
+            normalSearchViewModel.submitSearch(searchRequest)
         }
     }
 
@@ -180,7 +182,7 @@ fun NormalSearchPage(
     val state = rememberPullRefreshState(normalSearchViewModel.isRefreshing.value, onRefresh = {
         scope.launch {
             normalSearchViewModel.isRefreshing.value = true
-            normalSearchViewModel.newSearchKey(normalSearchViewModel.curKeyWord)
+            normalSearchViewModel.newSearchKey(normalSearchViewModel.curKeyWord, force = true)
             // 自欺欺人刷新标记
             delay(500)
             normalSearchViewModel.isRefreshing.value = false
@@ -220,6 +222,7 @@ fun NormalSearchPage(
                             CartoonSearchItem(
                                 cartoonCover = it,
                                 isStar = starSet.contains(it.toIdentify()),
+                                v2Presentation = v2Presentation,
                                 onClick = {
                                     nav.navigationDetailed(it)
                                 },
@@ -266,6 +269,7 @@ fun CartoonSearchItem(
     modifier: Modifier = Modifier,
     cartoonCover: CartoonCover,
     isStar: Boolean = false,
+    v2Presentation: Boolean = false,
     onClick: (CartoonCover) -> Unit,
     onLongPress: (CartoonCover) -> Unit,
 ) {
@@ -287,11 +291,18 @@ fun CartoonSearchItem(
         horizontalArrangement = Arrangement.Start
     ) {
         if (cartoonCover.coverUrl != null) {
-            CartoonCard(
-                cover = cartoonCover.coverUrl ?: "",
-                name = cartoonCover.title,
-                source = null
-            )
+            if (v2Presentation) {
+                CartoonCardWithCover(
+                    modifier = Modifier.width(100.dp),
+                    star = isStar,
+                    cartoonCover = cartoonCover,
+                    onClick = { onClick(it) },
+                    onLongPress = { onLongPress(it) },
+                    v2Presentation = true,
+                )
+                return@Row
+            }
+            CartoonCard(cover = cartoonCover.coverUrl ?: "", name = cartoonCover.title, source = null)
 
             Spacer(
                 modifier = Modifier

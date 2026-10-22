@@ -1,16 +1,14 @@
 package com.heyanle.easybangumi4.cartoon.story.download.action
 
 import android.app.Application
-import com.heyanle.easybangumi4.R
 import com.heyanle.easybangumi4.cartoon.entity.CartoonDownloadReq
 import com.heyanle.easybangumi4.cartoon.story.download.runtime.CartoonDownloadRuntime
+import com.heyanle.easybangumi4.cartoon.story.download.engine.QuickDownloadArtifact
 import com.heyanle.easybangumi4.cartoon.story.download.utils.M3U8Utils
 import com.heyanle.easybangumi4.utils.CoroutineProvider
 import com.heyanle.easybangumi4.utils.EasyMemoryInfo
 import com.heyanle.easybangumi4.utils.getCachePath
 import com.heyanle.easybangumi4.utils.stringRes
-import com.jeffmony.m3u8library.VideoProcessManager
-import com.jeffmony.m3u8library.listener.IVideoTransformListener
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import java.io.File
@@ -35,6 +33,7 @@ class TranscodeAction(
 
     private val decryptCacheFolder = File(cacheFolder, "decrypt")
     private val ffmpegCacheFolder = File(cacheFolder, "ffmpeg")
+    private val hlsToMp4Transcoder = createHlsToMp4Transcoder(application)
 
 
     inner class TranscodeRunnable(
@@ -101,7 +100,7 @@ class TranscodeAction(
 
     override suspend fun canResume(cartoonDownloadReq: CartoonDownloadReq): Boolean {
         // 文件最终是改名，只要存在就一定已完成
-        val realTarget = File(cacheFolder, "${cartoonDownloadReq.uuid}.mp4")
+        val realTarget = File(ffmpegCacheFolder, "${cartoonDownloadReq.uuid}.mp4")
         return realTarget.exists() && realTarget.isFile && realTarget.canRead() && realTarget.length() > 0
     }
 
@@ -111,16 +110,36 @@ class TranscodeAction(
     }
 
     override fun push(cartoonDownloadRuntime: CartoonDownloadRuntime) {
-        val realTarget = File(cacheFolder, "${cartoonDownloadRuntime.req.uuid}.mp4")
+        val realTarget = File(ffmpegCacheFolder, "${cartoonDownloadRuntime.req.uuid}.mp4")
         if ( realTarget.exists() && realTarget.isFile && realTarget.canRead() && realTarget.length() > 0) {
             cartoonDownloadRuntime.filePathBeforeCopy = realTarget.absolutePath
             cartoonDownloadRuntime.stepCompletely(this)
             return
         }
 
+        // 某些快速引擎可直接产出最终 MP4，后处理只需透传。
+        val existingOutput = cartoonDownloadRuntime.filePathBeforeCopy
+            .takeIf { it.isNotBlank() }
+            ?.let(::File)
+        if (existingOutput != null &&
+            existingOutput.isFile &&
+            existingOutput.canRead() &&
+            existingOutput.length() > 0
+        ) {
+            cartoonDownloadRuntime.stepCompletely(this)
+            return
+        }
 
         // 非 m3u8 任务不需要转码
-        if (cartoonDownloadRuntime.m3u8Entity == null) {
+        val artifact = cartoonDownloadRuntime.quickDownloadArtifact
+        if (artifact is QuickDownloadArtifact.DirectFile) {
+            synchronized(cartoonDownloadRuntime.lock) {
+                cartoonDownloadRuntime.filePathBeforeCopy = artifact.filePath
+                cartoonDownloadRuntime.stepCompletely(this)
+            }
+            return
+        }
+        if (artifact == null && cartoonDownloadRuntime.m3u8Entity == null) {
             synchronized(cartoonDownloadRuntime.lock) {
                 cartoonDownloadRuntime.filePathBeforeCopy =
                     cartoonDownloadRuntime.ariaDownloadFilePath
@@ -137,6 +156,7 @@ class TranscodeAction(
 
     override fun onCancel(cartoonDownloadRuntime: CartoonDownloadRuntime) {
         executor.remove(cartoonDownloadRuntime.transcodeRunnable)
+        scope.launch { hlsToMp4Transcoder.cancel() }
         try {
             M3U8Utils.deleteM3U8WithTs(
                 cartoonDownloadRuntime.decryptFile?.absolutePath ?: ""
@@ -156,8 +176,13 @@ class TranscodeAction(
      * 最终生成文件路径 File(cacheFolder, "${cartoonDownloadRuntime.req.uuid}.m3u8")
      */
     private fun decrypt(cartoonDownloadRuntime: CartoonDownloadRuntime): Boolean {
-        val entity = cartoonDownloadRuntime.m3u8Entity ?: return false
-        val localM3U8 = File(entity.filePath)
+        val artifact = cartoonDownloadRuntime.quickDownloadArtifact
+        val legacyEntity = cartoonDownloadRuntime.m3u8Entity
+        val manifestPath = when (artifact) {
+            is QuickDownloadArtifact.HlsBundle -> artifact.filePath
+            else -> legacyEntity?.filePath
+        } ?: return false
+        val localM3U8 = File(manifestPath)
 
         if (!localM3U8.exists() || !localM3U8.canRead()) {
             return false
@@ -241,11 +266,26 @@ class TranscodeAction(
             return false
         }
         writer.flush()
+        writer.close()
 
         // 开始解密咯！
-        val needDecrypt = !entity.method.isNullOrEmpty()
-        val keyFile = File(entity.filePath)
-        val keyB = keyFile.readBytes()
+        val method = (artifact as? QuickDownloadArtifact.HlsBundle)?.method
+            ?: legacyEntity?.method
+        val iv = (artifact as? QuickDownloadArtifact.HlsBundle)?.iv
+            ?: legacyEntity?.iv
+        val keyPath = (artifact as? QuickDownloadArtifact.HlsBundle)?.keyPath
+            ?: legacyEntity?.keyPath
+        val needDecrypt = !method.isNullOrEmpty()
+        val keyB = if (needDecrypt) {
+            val keyFile = keyPath?.let(::File)
+            if (keyFile == null || !keyFile.isFile || !keyFile.canRead()) {
+                writer.close()
+                return false
+            }
+            keyFile.readBytes()
+        } else {
+            byteArrayOf()
+        }
 
         scope.launch {
             cartoonDownloadRuntime.dispatchToBus(
@@ -285,8 +325,8 @@ class TranscodeAction(
                 s,
                 s.size,
                 keyB,
-                entity.iv,
-                entity.method
+                iv.orEmpty(),
+                method.orEmpty()
             ) else s
             // 文件头伪装成 png
             val rr = res ?: s
@@ -326,32 +366,37 @@ class TranscodeAction(
             )
         }
 
-        VideoProcessManager.getInstance().transformM3U8ToMp4(
-            m3u8.absolutePath,
-            target.absolutePath,
-            object : IVideoTransformListener {
-                override fun onTransformProgress(progress: Float) {
-                    scope.launch {
-                        cartoonDownloadRuntime.dispatchToBus(
-                            progress,
-                            stringRes(com.heyanle.easy_i18n.R.string.transcoding),
-                            "${(progress).toInt()}%"
-                        )
-                    }
-                }
-
-                override fun onTransformFailed(e: Exception?) {
-                    onError(e)
-
-                }
-
-                override fun onTransformFinished() {
-                    target.renameTo(realTarget)
-                    M3U8Utils.deleteM3U8WithTs(m3u8.absolutePath)
-                    onCompletely()
-                }
+        scope.launch {
+            runCatching {
+                hlsToMp4Transcoder.start(
+                    inputPath = m3u8.absolutePath,
+                    outputPath = target.absolutePath,
+                    onProgress = { progress ->
+                        if (cartoonDownloadRuntime.isCanceled()) return@start
+                        val percent = (progress * 100).toInt().coerceIn(0, 100)
+                        scope.launch {
+                            cartoonDownloadRuntime.dispatchToBus(
+                                progress.coerceIn(0f, 1f),
+                                stringRes(com.heyanle.easy_i18n.R.string.transcoding),
+                                "$percent%",
+                            )
+                        }
+                    },
+                    onError = {
+                        target.delete()
+                        onError(it)
+                    },
+                    onCompleted = {
+                        target.renameTo(realTarget)
+                        M3U8Utils.deleteM3U8WithTs(m3u8.absolutePath)
+                        onCompletely()
+                    },
+                )
+            }.onFailure {
+                target.delete()
+                onError(it as? Exception ?: IOException(it))
             }
-        )
+        }
         return true
     }
 

@@ -6,10 +6,12 @@ import android.content.Context
 import android.os.Build
 import android.os.Looper
 import android.os.Process
-import com.google.firebase.initialize
-import com.google.firebase.ktx.Firebase
-import com.google.firebase.ktx.initialize
+import coil.Coil
+import coil.ImageLoader
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
 import com.heyanle.easybangumi4.setting.SettingMMKVPreferences
+import com.heyanle.easybangumi4.utils.WebViewCompatibilityModeGuard
 import com.heyanle.inject.core.Inject
 
 /**
@@ -30,41 +32,61 @@ class App : Application() {
 
     override fun attachBaseContext(base: Context?) {
         super.attachBaseContext(base)
+        base?.let(WebViewCompatibilityModeGuard::initialize)
         Scheduler.runOnAppAttachBaseContext(this)
     }
-    override fun getPackageName(): String {
 
+    override fun getPackageName(): String {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
-                // Override the value passed as X-Requested-With in WebView requests
-                val stackTrace = Looper.getMainLooper().thread.stackTrace
-                val chromiumElement = stackTrace.find {
-                    it.className.equals(
-                        "org.chromium.base.BuildInfo",
-                        ignoreCase = true,
-                    )
+                // Preserve the legacy behavior: inspect the main-thread Chromium stack instead of
+                // forcing package spoofing around every WebView provider entry point.
+                val chromiumElement = Looper.getMainLooper().thread.stackTrace.find {
+                    it.className.equals("org.chromium.base.BuildInfo", ignoreCase = true) &&
+                        it.methodName.equals("getAll", ignoreCase = true)
                 }
-                if (chromiumElement?.methodName.equals("getAll", ignoreCase = true)) {
-                    val settingPreferences: SettingMMKVPreferences by Inject.injectLazy()
-                    if (settingPreferences.webViewCompatible.get()) {
-                        // 兼容模式不改写
-                        return super.getPackageName()
+                if (chromiumElement != null) {
+                    val tag = WebViewCompatibilityModeGuard.newTag("application_package_name")
+                    WebViewCompatibilityModeGuard.open(tag)
+                    return try {
+                        val settingPreferences: SettingMMKVPreferences by Inject.injectLazy()
+                        if (settingPreferences.webViewCompatible.get()) {
+                            super.getPackageName()
+                        } else {
+                            SPOOF_PACKAGE_NAME
+                        }
+                    } finally {
+                        WebViewCompatibilityModeGuard.close(tag)
                     }
-                    return SPOOF_PACKAGE_NAME
                 }
-            } catch (e: Exception) {
+            } catch (exception: Exception) {
+                exception.printStackTrace()
             }
         }
         return super.getPackageName()
     }
-
 
     override fun onCreate() {
 
         super.onCreate()
         APP = this
         if (isMainProcess()) {
-            Firebase.initialize(this)
+            Coil.setImageLoader(
+                ImageLoader.Builder(this)
+                    .memoryCache {
+                        MemoryCache.Builder(this)
+                            .maxSizePercent(0.20)
+                            .build()
+                    }
+                    .diskCache {
+                        DiskCache.Builder()
+                            .directory(cacheDir.resolve("coil_image_cache"))
+                            .maxSizeBytes(256L * 1024L * 1024L)
+                            .build()
+                    }
+                    .crossfade(true)
+                    .build()
+            )
             Scheduler.runOnAppCreate(this)
         }
 

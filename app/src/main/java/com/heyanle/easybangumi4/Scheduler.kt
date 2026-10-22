@@ -2,19 +2,25 @@ package com.heyanle.easybangumi4
 
 import android.app.Application
 import android.util.Base64
+import android.widget.Toast
+import androidx.activity.ComponentActivity
 import com.heyanle.easy_crasher.CrashHandler
 import com.heyanle.easybangumi4.cartoon.CartoonModule
+import com.heyanle.easybangumi4.cloudsync.CloudSyncModule
 import com.heyanle.easybangumi4.exo.MediaModule
 import com.heyanle.easybangumi4.case.CaseModule
+import com.heyanle.easybangumi4.danmaku.DanmakuModule
 import com.heyanle.easybangumi4.crash.SourceCrashController
 import com.heyanle.easybangumi4.dlna.DlnaModule
 import com.heyanle.easybangumi4.setting.SettingModule
+import com.heyanle.easybangumi4.setting.SettingMMKVPreferences
 import com.heyanle.easybangumi4.plugin.source.SourceModule
 import com.heyanle.easybangumi4.splash.SplashActivity
 import com.heyanle.easybangumi4.storage.StorageModule
 import com.heyanle.easybangumi4.ui.common.dismiss
 import com.heyanle.easybangumi4.ui.common.moeDialogAlert
 import com.heyanle.easybangumi4.utils.UUIDHelper
+import com.heyanle.easybangumi4.utils.WebViewCompatibilityModeGuard
 import com.heyanle.easybangumi4.utils.exo_ssl.CropUtil
 import com.heyanle.easybangumi4.utils.exo_ssl.TrustAllHostnameVerifier
 import com.heyanle.easybangumi4.utils.getCachePath
@@ -57,24 +63,26 @@ object Scheduler {
      */
     fun runOnAppCreate(application: Application) {
 
-        try {
-            File(application.getCachePath("transformer")).deleteRecursively()
-            File(application.getCachePath("download")).deleteRecursively()
-        }catch (e: Exception) {
-            e.printStackTrace()
+        // 冷启动主线程 deleteRecursively 是启动耗时热点，移到 IO 线程后台清理缓存目录。
+        MainScope().launch(Dispatchers.IO) {
+            runCatching { File(application.getCachePath("transformer")).deleteRecursively() }
+            runCatching { File(application.getCachePath("download")).deleteRecursively() }
         }
 
 
         // 注册各种 Controller
         SettingModule(application).registerWith(Inject)
         ControllerModule(application).registerWith(Inject)
+        CloudSyncModule(application).registerWith(Inject)
         CartoonModule(application).registerWith(Inject)
+        DanmakuModule().registerWith(Inject)
         MediaModule(application).registerWith(Inject)
         CaseModule(application).registerWith(Inject)
         SourceModule(application).registerWith(Inject)
         StorageModule(application).registerWith(Inject)
         DlnaModule(application).registerWith(Inject)
         initOkkv(application)
+        recoverWebViewCompatibilityMode(application)
         initBugly(application)
         initAria(application)
 
@@ -91,7 +99,7 @@ object Scheduler {
     /**
      * MainActivity#onCreate
      */
-    fun runOnMainActivityCreate(activity: MainActivity, isFirst: Boolean) {
+    fun runOnMainActivityCreate(activity: ComponentActivity, isFirst: Boolean) {
         Migrate.update(activity)
         if (isFirst) {
             try {
@@ -114,7 +122,7 @@ object Scheduler {
         UpdateController.checkUpdate()
     }
 
-    fun runOnComposeLaunch(activity: MainActivity) {
+    fun runOnComposeLaunch(activity: ComponentActivity) {
         if (first != BuildConfig.VERSION_CODE) {
             try {
                 // 更新日志
@@ -169,6 +177,27 @@ object Scheduler {
         Okkv.Builder(MMKVStore(application)).cache().build().init().default()
         // 如果不使用缓存，请手动指定 key
         Okkv.Builder(MMKVStore(application)).build().init().default("no_cache")
+    }
+
+    private fun recoverWebViewCompatibilityMode(application: Application) {
+        if (!WebViewCompatibilityModeGuard.shouldEnableCompatibilityMode()) return
+
+        runCatching {
+            val preferences = Inject.get<SettingMMKVPreferences>().webViewCompatible
+            preferences.set(true)
+            check(preferences.get()) { "failed to persist WebView compatibility mode" }
+            check(WebViewCompatibilityModeGuard.clear()) {
+                "failed to clear WebView compatibility guard directory"
+            }
+            Toast.makeText(
+                application,
+                "检测到上次 WebView 初始化异常，已自动开启兼容模式",
+                Toast.LENGTH_LONG,
+            ).show()
+        }.onFailure {
+            // Keep the parent directory intact so the next process can retry the recovery.
+            it.printStackTrace()
+        }
     }
 
     /**

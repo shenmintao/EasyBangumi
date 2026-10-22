@@ -1,10 +1,10 @@
 package com.heyanle.easybangumi4
 
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -19,11 +19,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.google.firebase.analytics.FirebaseAnalytics
-import com.google.firebase.analytics.logEvent
 import com.heyanle.easybangumi4.plugin.source.utils.network.WebViewHelperV2Impl
 import com.heyanle.easybangumi4.plugin.api.entity.CartoonCover
 import com.heyanle.easybangumi4.plugin.api.entity.CartoonSummary
+import com.heyanle.easybangumi4.navigation.PLAYBACK_DETAIL_LEGACY_ROUTE
+import com.heyanle.easybangumi4.navigation.PLAYBACK_DETAIL_V2_ROUTE
+import com.heyanle.easybangumi4.navigation.PlaybackDetailTarget
+import com.heyanle.easybangumi4.navigation.buildPlaybackDetailRoute
+import com.heyanle.easybangumi4.navigation.decodePlaybackDetailRouteArguments
 import com.heyanle.easybangumi4.utils.logi
 import com.heyanle.easybangumi4.theme.NormalSystemBarColor
 import com.heyanle.easybangumi4.ui.WebViewUser
@@ -34,6 +37,7 @@ import com.heyanle.easybangumi4.ui.dlna.Dlna
 import com.heyanle.easybangumi4.ui.source_push.SourcePush
 import com.heyanle.easybangumi4.ui.story.download.Download
 import com.heyanle.easybangumi4.ui.main.Main
+import com.heyanle.easybangumi4.ui.common.MoeDialogHost
 import com.heyanle.easybangumi4.ui.main.history.History
 import com.heyanle.easybangumi4.ui.search_migrate.migrate.Migrate
 import com.heyanle.easybangumi4.ui.search_migrate.search.Search
@@ -64,7 +68,8 @@ const val NAV = "nav"
 
 const val MAIN = "home"
 
-const val DETAILED = "detailed"
+const val DETAILED = PLAYBACK_DETAIL_V2_ROUTE
+const val DETAILED_LEGACY = PLAYBACK_DETAIL_LEGACY_ROUTE
 const val LOCAL_PLAY = "local_play"
 
 const val WEB_VIEW_USER = "web_view_user"
@@ -95,6 +100,12 @@ const val STORY = "story"
 
 const val SOURCE_PUSH = "source_push"
 
+/** 源体检（批量测试首页/搜索/播放），仅开发与测试变体可见 */
+const val SOURCE_LAB = "source_lab"
+
+/** 用户主动诊断已安装并启用的源。 */
+const val SOURCE_DIAGNOSTICS = "source_diagnostics"
+
 fun NavHostController.navigationSearch(
     defSourceKey: String,
 ) {
@@ -115,20 +126,12 @@ fun NavHostController.navigationSourceHome(key: String) {
 
 fun NavHostController.navigationDetailed(id: String, url: String, source: String) {
     "detail-navigation source=$source cartoonId=$id url=$url".logi("PlaybackTrace")
-    val el = URLEncoder.encode(url, "utf-8")
-    val ed = URLEncoder.encode(id, "utf-8")
-    val es = URLEncoder.encode(source, "utf-8")
-    // easyTODO("详情页")
-    navigate("${DETAILED}?url=${el}&source=${es}&id=${ed}")
+    navigate(buildPlaybackDetailRoute(id = id, source = source))
 }
 
 fun NavHostController.navigationDetailed(cartoonCover: CartoonCover) {
     "detail-navigation source=${cartoonCover.source} cartoonId=${cartoonCover.id} url=${cartoonCover.url}".logi("PlaybackTrace")
-    val url = URLEncoder.encode(cartoonCover.url, "utf-8")
-    val id = URLEncoder.encode(cartoonCover.id, "utf-8")
-    val es = URLEncoder.encode(cartoonCover.source, "utf-8")
-    // easyTODO("详情页")
-    navigate("${DETAILED}?url=${url}&source=${es}&id=${id}")
+    navigate(buildPlaybackDetailRoute(id = cartoonCover.id, source = cartoonCover.source))
 }
 
 fun NavHostController.navigationSourceManager(defIndex: Int = -1) {
@@ -143,12 +146,23 @@ fun NavHostController.navigationDetailed(
     adviceProgress: Long,
 ) {
     "detail-navigation source=${cartoonCover.source} cartoonId=${cartoonCover.id} url=${cartoonCover.url} lineIndex=$lineIndex episodeIndex=$episode adviceProgress=$adviceProgress".logi("PlaybackTrace")
-    // easyTODO("详情页")
-    val url = URLEncoder.encode(cartoonCover.url, "utf-8")
-    val id = URLEncoder.encode(cartoonCover.id, "utf-8")
-    val es = URLEncoder.encode(cartoonCover.source, "utf-8")
-    // easyTODO("详情页")
-    navigate("${DETAILED}?url=${url}&source=${es}&id=${id}&lineIndex=${lineIndex}&episode=${episode}&adviceProgress=${adviceProgress}")
+    val enterData = CartoonPlayViewModel.EnterData(
+        playLineId = "",
+        playLineLabel = "",
+        playLineIndex = lineIndex,
+        episodeId = "",
+        episodeLabel = "",
+        episodeOrder = -1,
+        episodeIndex = episode,
+        adviceProgress = adviceProgress,
+    )
+    navigate(
+        buildPlaybackDetailRoute(
+            id = cartoonCover.id,
+            source = cartoonCover.source,
+            enterDataJson = enterData.toJson(),
+        )
+    )
 }
 
 fun NavHostController.navigationDlna(
@@ -159,18 +173,30 @@ fun NavHostController.navigationDlna(
     val ed = URLEncoder.encode(s, "utf-8")
     val enterData = URLEncoder.encode(e.toJson(), "utf-8")
     // easyTODO("详情页")
-    navigate("${DLNA}?source=${ed}&id=${id}&enter_date=${enterData}")
+    navigate("${DLNA}?source=${ed}&id=${id}&enter_data=${enterData}")
 }
 
 fun NavHostController.navigationDetailed(
     i: String, s: String,
     e: CartoonPlayViewModel.EnterData,
 ) {
-    val id = URLEncoder.encode(i, "utf-8")
-    val ed = URLEncoder.encode(s, "utf-8")
-    val enterData = URLEncoder.encode(e.toJson(), "utf-8")
-    // easyTODO("详情页")
-    navigate("${DETAILED}?source=${ed}&id=${id}&enter_date=${enterData}")
+    navigate(buildPlaybackDetailRoute(id = i, source = s, enterDataJson = e.toJson()))
+}
+
+/** 显式进入保留的旧播放页，用于迁移期恢复和发布回退。 */
+fun NavHostController.navigationDetailedLegacy(
+    id: String,
+    source: String,
+    enterData: CartoonPlayViewModel.EnterData? = null,
+) {
+    navigate(
+        buildPlaybackDetailRoute(
+            id = id,
+            source = source,
+            enterDataJson = enterData?.toJson() ?: "{}",
+            target = PlaybackDetailTarget.Legacy,
+        )
+    )
 }
 
 fun NavHostController.navigationLocalPlay(
@@ -204,30 +230,6 @@ fun NavHostController.navigationMigrate(summaries: List<CartoonSummary>, sourceK
 const val DEFAULT = MAIN
 
 @Composable
-fun ScreenShowEvent(
-    vararg customArgs: Pair<String, String>,
-) {
-    val analytics = LocalFirebaseAnalytics.current
-    val nav = LocalNavController.current
-    if (analytics != null) {
-        LaunchedEffect(key1 = Unit) {
-            runCatching {
-                analytics.logEvent(FirebaseAnalytics.Event.SCREEN_VIEW) {
-                    param(FirebaseAnalytics.Param.SCREEN_NAME, nav.currentDestination?.route ?: "")
-                    customArgs.forEach {
-                        param(it.first, it.second)
-                    }
-                }
-            }.onFailure {
-                it.printStackTrace()
-            }
-
-        }
-    }
-
-}
-
-@Composable
 fun Nav() {
 
     val nav = rememberNavController()
@@ -235,10 +237,12 @@ fun Nav() {
         navControllerRef = WeakReference(nav)
     }
     CompositionLocalProvider(LocalNavController provides nav) {
-        NavHost(nav, DEFAULT,
+        Box(Modifier.fillMaxSize()) {
+            NavHost(nav, DEFAULT,
             modifier = Modifier.fillMaxSize(),
+            // 前进退场保持纯滑动（与 pop 方向对称），避免 fadeOut 半透明期闪烁。
             enterTransition = { slideInHorizontally(tween()) { it } },
-            exitTransition = { slideOutHorizontally(tween()) { -it } + fadeOut(tween()) },
+            exitTransition = { slideOutHorizontally(tween()) { -it } },
             popEnterTransition = { slideInHorizontally(tween()) { -it } },
             popExitTransition = { slideOutHorizontally(tween()) { it } }
         ) {
@@ -246,7 +250,6 @@ fun Nav() {
             composable(
                 MAIN,
             ) {
-                ScreenShowEvent()
                 NormalSystemBarColor()
                 Main()
 
@@ -260,18 +263,12 @@ fun Nav() {
                     navArgument("enter_data") { defaultValue = "{}" },
                     )
             ) {
-
-                val id = it.arguments?.getString("id") ?: ""
-                val source = it.arguments?.getString("source") ?: ""
-
-                var enterDataString = it.arguments?.getString("enter_data") ?: ""
-                enterDataString = URLDecoder.decode(enterDataString, "utf-8")
-
-                ScreenShowEvent(
-                    "id" to id,
-                    "source" to source,
-                    "enter_data" to enterDataString
+                val routeArguments = decodePlaybackDetailRouteArguments(
+                    id = it.arguments?.getString("id") ?: "",
+                    source = it.arguments?.getString("source") ?: "",
+                    enterDataJson = it.arguments?.getString("enter_data") ?: "{}",
                 )
+
                 NormalSystemBarColor(
                     getStatusBarDark = {
                         false
@@ -279,12 +276,36 @@ fun Nav() {
                 )
 
                 val enterData = kotlin.runCatching {
-                    enterDataString.jsonTo<CartoonPlayViewModel.EnterData>()
+                    routeArguments.enterDataJson.jsonTo<CartoonPlayViewModel.EnterData>()
                 }.getOrNull()
                 CartoonPlay(
-                    id = URLDecoder.decode(id, "utf-8"),
-                    source = URLDecoder.decode(source, "utf-8"),
-                    enterData
+                    id = routeArguments.id,
+                    source = routeArguments.source,
+                    enterData = enterData,
+                )
+            }
+
+            // Kept as a separate destination so the untouched legacy page remains available for rollback.
+            composable(
+                route = "${DETAILED_LEGACY}?source={source}&id={id}&enter_data={enter_data}",
+                arguments = listOf(
+                    navArgument("source") { defaultValue = "" },
+                    navArgument("id") { defaultValue = "" },
+                    navArgument("enter_data") { defaultValue = "{}" },
+                )
+            ) {
+                val routeArguments = decodePlaybackDetailRouteArguments(
+                    id = it.arguments?.getString("id") ?: "",
+                    source = it.arguments?.getString("source") ?: "",
+                    enterDataJson = it.arguments?.getString("enter_data") ?: "{}",
+                )
+                val enterData = kotlin.runCatching {
+                    routeArguments.enterDataJson.jsonTo<CartoonPlayViewModel.EnterData>()
+                }.getOrNull()
+                CartoonPlay(
+                    id = routeArguments.id,
+                    source = routeArguments.source,
+                    enterData = enterData,
                 )
             }
 
@@ -302,11 +323,6 @@ fun Nav() {
 
                 var enterDataString = it.arguments?.getString("enter_data") ?: ""
                 enterDataString = URLDecoder.decode(enterDataString, "utf-8")
-                ScreenShowEvent(
-                    "id" to id,
-                    "source" to source,
-                    "enter_data" to enterDataString
-                )
                 NormalSystemBarColor()
 
                 val enterData = kotlin.runCatching {
@@ -325,7 +341,6 @@ fun Nav() {
                     navArgument("uuid") { defaultValue = "" },
                 )
             ) {
-                ScreenShowEvent()
                 NormalSystemBarColor(
                     getStatusBarDark = {
                         false
@@ -343,9 +358,6 @@ fun Nav() {
             ) {
 
                 val router = it.arguments?.getString("router") ?: SettingPage.Appearance.router
-                ScreenShowEvent(
-                    "sub_router" to router
-                )
                 NormalSystemBarColor()
                 Setting(router = router)
             }
@@ -354,7 +366,6 @@ fun Nav() {
                 arguments = listOf(
                     navArgument("tips") { defaultValue = "" },
                 )) {
-                ScreenShowEvent()
                 DisposableEffect(key1 = Unit) {
                     onDispose {
                         WebViewHelperV2Impl.webPageShowing = false
@@ -372,7 +383,6 @@ fun Nav() {
             }
 
             composable(HISTORY) {
-                ScreenShowEvent()
                 NormalSystemBarColor()
                 Surface(
                     color = MaterialTheme.colorScheme.background,
@@ -392,14 +402,12 @@ fun Nav() {
                 )) {
                 val defSearchKey = it.arguments?.getInt("defIndex", 0) ?: 0
 
-                ScreenShowEvent()
                 NormalSystemBarColor()
                 //Download()
                 Story(defSearchKey)
             }
 
             composable(SOURCE_PUSH) {
-                ScreenShowEvent()
                 NormalSystemBarColor()
                 SourcePush()
                 //Download()
@@ -415,7 +423,6 @@ fun Nav() {
                     }
                 )
             ) {
-                ScreenShowEvent()
                 val defSearchKey = it.arguments?.getInt("defIndex", -1) ?: -1
                 NormalSystemBarColor()
                 Surface(
@@ -433,7 +440,6 @@ fun Nav() {
                     navArgument("defSourceKey") { defaultValue = "" },
                 )
             ) {
-                ScreenShowEvent()
                 val defSearchKey = it.arguments?.getString("defSearchKey") ?: ""
                 val defSourceKey = it.arguments?.getString("defSourceKey") ?: ""
                 NormalSystemBarColor()
@@ -457,7 +463,6 @@ fun Nav() {
                     navArgument("sourceKeys") { defaultValue = "" },
                 )
             ) {
-                ScreenShowEvent()
                 val summariesJson = it.arguments?.getString("summaries")?.let { URLDecoder.decode(it, "utf-8") }
                 val sourceKeysJson = it.arguments?.getString("sourceKeys")?.let { URLDecoder.decode(it, "utf-8") }
                 val summaries = summariesJson?.jsonTo<List<CartoonSummary>>() ?: emptyList()
@@ -484,7 +489,6 @@ fun Nav() {
             }
 
             composable(ABOUT) {
-                ScreenShowEvent()
                 NormalSystemBarColor()
                 About()
             }
@@ -496,7 +500,6 @@ fun Nav() {
                     navArgument("key") { defaultValue = "" },
                 )
             ) {
-                ScreenShowEvent()
                 val source = it.arguments?.getString("key") ?: ""
                 NormalSystemBarColor()
                 Surface(
@@ -508,19 +511,18 @@ fun Nav() {
             }
 
             composable(TAG_MANAGE) {
-                ScreenShowEvent()
                 NormalSystemBarColor()
                 CartoonTag()
             }
 
 
             composable(STORAGE) {
-                ScreenShowEvent()
                 NormalSystemBarColor()
                 Storage()
             }
+            }
+            MoeDialogHost()
         }
     }
 
 }
-

@@ -4,6 +4,7 @@ import androidx.core.net.toUri
 import com.heyanle.easy_i18n.R
 import com.heyanle.easybangumi4.APP
 import com.heyanle.easybangumi4.cartoon.entity.CartoonDownloadReq
+import com.heyanle.easybangumi4.cartoon.story.bound.BoundMediaCase
 import com.heyanle.easybangumi4.cartoon.story.download.runtime.CartoonDownloadRuntime
 import com.heyanle.easybangumi4.cartoon.story.local.LocalCartoonPreference
 import com.heyanle.easybangumi4.utils.stringRes
@@ -67,7 +68,11 @@ class CopyAndNfoAction: BaseAction {
         val mediaNameP =
             "${runtime.req.toLocalItemId} ${runtime.req.toEpisodeTitle} S1E${runtime.req.toEpisode}"
         val mediaName = "${mediaNameP}.mp4"
-        val targetMediaFile = targetCartoonFolder.createFile("$mediaName.temp")
+        val nfoName = "${mediaNameP}.nfo"
+        val tempSuffix = ".${runtime.req.uuid}.temp"
+        targetCartoonFolder.findFile("$mediaName$tempSuffix")?.delete()
+        targetCartoonFolder.findFile("$nfoName$tempSuffix")?.delete()
+        val targetMediaFile = targetCartoonFolder.createFile("$mediaName$tempSuffix")
             ?: throw IllegalStateException("target media file is null")
         if (!targetMediaFile.canWrite()) {
             throw IllegalStateException("target media file can not write")
@@ -79,11 +84,10 @@ class CopyAndNfoAction: BaseAction {
             }
         }
 
-        targetMediaFile.renameTo(mediaName)
-
-        // write nfo
-        val nfoFile = targetCartoonFolder.createFile("${mediaNameP}.nfo")
+        // 先完整写入两个临时文件，再发布正式名称，避免复制/NFO 失败时暴露半成品。
+        val nfoFile = targetCartoonFolder.createFile("$nfoName$tempSuffix")
         if (nfoFile == null || !nfoFile.canWrite()) {
+            targetMediaFile.delete()
             throw IllegalStateException("nfo file is null or can not write")
         }
 
@@ -93,8 +97,36 @@ class CopyAndNfoAction: BaseAction {
         details.appendElement("episode").text(runtime.req.toEpisode.toString())
 
         val text = details.outerHtml()
-        nfoFile.openOutputStream().bufferedWriter().use {
-            it.write(text)
+        try {
+            nfoFile.openOutputStream().bufferedWriter().use {
+                it.write(text)
+            }
+            targetCartoonFolder.findFile(nfoName)?.delete()
+            targetCartoonFolder.findFile(mediaName)?.delete()
+            if (!nfoFile.renameTo(nfoName)) {
+                throw IllegalStateException("publish nfo file failed")
+            }
+            if (!targetMediaFile.renameTo(mediaName)) {
+                targetCartoonFolder.findFile(nfoName)?.delete()
+                throw IllegalStateException("publish media file failed")
+            }
+        } catch (error: Throwable) {
+            targetMediaFile.delete()
+            nfoFile.delete()
+            throw error
+        }
+
+        // 下载即绑定：把源剧集与本地番源条目的目标集数建立集级绑定
+        try {
+            Inject.get<BoundMediaCase>().bindDownloadedLocalStory(
+                runtime.req.fromCartoonInfo,
+                runtime.req.fromPlayLine,
+                runtime.req.fromEpisode,
+                runtime.req.toLocalItemId,
+                runtime.req.toEpisode,
+            )
+        } catch (e: Throwable) {
+            e.printStackTrace()
         }
 
         sourceFile.delete()

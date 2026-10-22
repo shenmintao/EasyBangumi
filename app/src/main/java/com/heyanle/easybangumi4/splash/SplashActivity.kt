@@ -13,6 +13,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -23,13 +24,15 @@ import androidx.compose.ui.res.stringResource
 import com.heyanle.easy_i18n.R
 import com.heyanle.easybangumi4.LauncherBus
 import com.heyanle.easybangumi4.LocalWindowSizeController
-import com.heyanle.easybangumi4.MainActivity
+import com.heyanle.easybangumi4.MainActivitySwitcher
 import com.heyanle.easybangumi4.Migrate
 import com.heyanle.easybangumi4.Scheduler
+import com.heyanle.easybangumi4.setting.SettingPreferences
 import com.heyanle.easybangumi4.theme.EasyTheme
 import com.heyanle.easybangumi4.theme.NormalSystemBarColor
 import com.heyanle.easybangumi4.ui.common.LoadingPage
 import com.heyanle.easybangumi4.utils.MediaUtils
+import com.heyanle.easybangumi4.v2.theme.V2ThemeProvider
 import com.heyanle.inject.api.get
 import com.heyanle.inject.core.Inject
 import com.heyanle.okkv2.core.okkv
@@ -53,6 +56,7 @@ class SplashActivity : ComponentActivity() {
 
     }
     val splashGuildController = Inject.get<SplashGuildController>()
+    private val settingPreferences: SettingPreferences by Inject.injectLazy()
     var first by okkv("first_visible_splash", def = true)
     private val launcherBus = LauncherBus(this)
     override fun onResume() {
@@ -60,14 +64,27 @@ class SplashActivity : ComponentActivity() {
         LauncherBus.onResume(launcherBus)
     }
 
+    override fun onDestroy() {
+        if (lastSplashActivity?.get() === this) {
+            lastSplashActivity = null
+        }
+        super.onDestroy()
+    }
+
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val lat = lastSplashActivity?.get()
-        if (lat != this){
-            lat?.finish()
-            lastSplashActivity = WeakReference(this)
-        }
+        /*
+         * Do not finish the previously registered instance here. During a configuration change,
+         * Android creates the replacement SplashActivity while the old instance is still being
+         * destroyed. Finishing that old instance from the replacement can remove the activity
+         * record that owns the whole launcher task, which makes a rotation return to the launcher.
+         *
+         * The reference is only used by MainActivity as a best-effort cleanup after navigation,
+         * so replacing it with the latest instance is sufficient and lets Android own the
+         * configuration-change lifecycle.
+         */
+        lastSplashActivity = WeakReference(this)
         if (splashCompletely) {
             jumpToMain()
         } else {
@@ -91,7 +108,7 @@ class SplashActivity : ComponentActivity() {
                     LocalWindowSizeController provides windowClazz,
                     LocalSplashActivity provides this,
                 ) {
-                    EasyTheme {
+                    val splashContent: @Composable () -> Unit = {
                         NormalSystemBarColor()
                         Surface(
                             color = MaterialTheme.colorScheme.background,
@@ -114,6 +131,11 @@ class SplashActivity : ComponentActivity() {
                             }
                         }
                     }
+                    if (settingPreferences.useV2Ui.get()) {
+                        V2ThemeProvider(content = splashContent)
+                    } else {
+                        EasyTheme(content = splashContent)
+                    }
                 }
             }
         }
@@ -125,7 +147,7 @@ class SplashActivity : ComponentActivity() {
         con.end()
 
         splashCompletely = true
-        val intent = Intent(this, MainActivity::class.java)
+        val intent = MainActivitySwitcher.createMainIntent(this)
         intent.flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         startActivity(intent)
         finish()

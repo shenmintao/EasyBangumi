@@ -4,6 +4,11 @@ package com.heyanle.easybangumi4.base.json
 import com.heyanle.easybangumi4.APP
 import com.heyanle.easybangumi4.cartoon.entity.CartoonDownloadReq
 import com.heyanle.easybangumi4.cartoon.entity.CartoonTag
+import com.heyanle.easybangumi4.cartoon.story.bound.CartoonEpisodeBinding
+import com.heyanle.easybangumi4.danmaku.DanmakuBangumiCacheEntry
+import com.heyanle.easybangumi4.danmaku.DanmakuBinding
+import com.heyanle.easybangumi4.danmaku.DanmakuCommentCacheEntry
+import com.heyanle.easybangumi4.danmaku.DanmakuEpisodeCacheEntry
 import com.heyanle.easybangumi4.plugin.source.SourceConfig
 import com.heyanle.easybangumi4.utils.CoroutineProvider
 import com.heyanle.easybangumi4.utils.getFilePath
@@ -48,6 +53,47 @@ class JsonFileProvider {
         def = emptyList(),
         scope = scope,
         type = typeOf<List<CartoonDownloadReq>>().javaType
+    )
+
+    // /storage/emulated/0/Android/data/com.heyanle.easybangumi4/files/cartoon/cartoon_episode_binding.json
+    val cartoonEpisodeBinding: JsonFileHelper<List<CartoonEpisodeBinding>> = JsonFileHelper(
+        folder = UniFile.fromFile(File(APP.getFilePath("cartoon")))!!,
+        name = "cartoon_episode_binding.json",
+        def = emptyList(),
+        scope = scope,
+        type = typeOf<List<CartoonEpisodeBinding>>().javaType
+    )
+
+    val danmakuBindings: JsonFileHelper<List<DanmakuBinding>> = JsonFileHelper(
+        folder = UniFile.fromFile(File(APP.getFilePath("danmaku")))!!,
+        name = "bindings.jsonl",
+        def = emptyList(),
+        scope = scope,
+        type = typeOf<List<DanmakuBinding>>().javaType,
+    )
+
+    val danmakuBangumiCache: JsonFileHelper<List<DanmakuBangumiCacheEntry>> = JsonFileHelper(
+        folder = UniFile.fromFile(File(APP.getFilePath("danmaku")))!!,
+        name = "anime_cache.jsonl",
+        def = emptyList(),
+        scope = scope,
+        type = typeOf<List<DanmakuBangumiCacheEntry>>().javaType,
+    )
+
+    val danmakuEpisodeCache: JsonFileHelper<List<DanmakuEpisodeCacheEntry>> = JsonFileHelper(
+        folder = UniFile.fromFile(File(APP.getFilePath("danmaku")))!!,
+        name = "episode_cache.jsonl",
+        def = emptyList(),
+        scope = scope,
+        type = typeOf<List<DanmakuEpisodeCacheEntry>>().javaType,
+    )
+
+    val danmakuCommentCache: JsonFileHelper<List<DanmakuCommentCacheEntry>> = JsonFileHelper(
+        folder = UniFile.fromFile(File(APP.getFilePath("danmaku")))!!,
+        name = "comment_cache.jsonl",
+        def = emptyList(),
+        scope = scope,
+        type = typeOf<List<DanmakuCommentCacheEntry>>().javaType,
     )
 
 }

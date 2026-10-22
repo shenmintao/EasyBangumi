@@ -51,19 +51,26 @@ import com.heyanle.easybangumi4.ui.search_migrate.search.SearchViewModel
  */
 @Composable
 fun ColumnScope.GatherSearch(
-    searchViewModel: SearchViewModel
+    searchViewModel: SearchViewModel,
+    v2Presentation: Boolean = false,
 ) {
     val nav = LocalNavController.current
     val keyboard = LocalSoftwareKeyboardController.current
     val searchComponents = LocalSourceBundleController.current.searches()
     val vm =
-        viewModel<GatherSearchViewModel>(factory = GatherSearchViewModelFactory(searchComponents))
+        viewModel<GatherSearchViewModel>(
+            key = "gather-search",
+            factory = GatherSearchViewModelFactory(searchComponents),
+        )
 
     val starVm = viewModel<CoverStarViewModel>()
 
-    val searchKey = searchViewModel.searchFlow.collectAsState()
-    LaunchedEffect(key1 = searchKey.value) {
-        vm.newSearchKey(searchKey.value)
+    val searchRequest = searchViewModel.searchRequestFlow.collectAsState()
+    LaunchedEffect(searchRequest.value) {
+        vm.submitSearch(searchRequest.value)
+    }
+    LaunchedEffect(searchComponents) {
+        vm.updateSearchComponents(searchComponents)
     }
 
     val itemList = vm.searchItemList.collectAsState()
@@ -85,17 +92,19 @@ fun ColumnScope.GatherSearch(
                 }
             })
     ) {
-        itemList.value?.let {
-            items(it) {
+        itemList.value?.let { sourceItems ->
+            items(sourceItems) { sourceItem ->
                 MigrateSourceItem(
-                    sourceItem = it,
+                    sourceItem = sourceItem,
                     starVm = starVm,
+                    v2Presentation = v2Presentation,
                     onClick = {
                         nav.navigationDetailed(it)
                     },
                     onWebCheck = { exce, page ->
                         vm.onSearchNeedWebCheck(
-                            exce,
+                            sourceKey = sourceItem.searchComponent.source.key,
+                            searchNeedWebViewCheckBusinessException = exce,
                             onRetry = {
                                 page.retry()
                             }
@@ -113,6 +122,7 @@ fun MigrateSourceItem(
     sourceItem: GatherSearchViewModel.GatherSearchItem,
     starVm: CoverStarViewModel,
     supportLongTouchStart: Boolean = true,
+    v2Presentation: Boolean = false,
     onClick: (CartoonCover)->Unit,
     onWebCheck: ((SearchNeedVerificationBusinessException,LazyPagingItems<CartoonCover>  ) -> Unit) ?= null,
 
@@ -145,6 +155,7 @@ fun MigrateSourceItem(
                             modifier = Modifier.width(100.dp),
                             star = set.contains(it.toIdentify()),
                             cartoonCover = it,
+                            v2Presentation = v2Presentation,
                             onClick = {
                                onClick(it)
                             },

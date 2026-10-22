@@ -3,9 +3,11 @@ package com.heyanle.easybangumi4.ui.search_migrate.migrate
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.heyanle.easybangumi4.base.DataResult
 import com.heyanle.easybangumi4.cartoon.entity.CartoonInfo
 import com.heyanle.easybangumi4.cartoon.entity.PlayLineWrapper
-import com.heyanle.easybangumi4.cartoon.repository.db.dao.CartoonInfoDao
+import com.heyanle.easybangumi4.cartoon.repository.CartoonRepository
+import com.heyanle.easybangumi4.cartoon.repository.db.dao.StarMigrationResult
 import com.heyanle.easybangumi4.case.SourceStateCase
 import com.heyanle.easybangumi4.plugin.api.component.search.SearchComponent
 import com.heyanle.easybangumi4.plugin.api.entity.Cartoon
@@ -14,6 +16,7 @@ import com.heyanle.easybangumi4.plugin.api.entity.CartoonSummary
 import com.heyanle.easybangumi4.plugin.api.entity.Episode
 import com.heyanle.easybangumi4.plugin.api.entity.PlayLine
 import com.heyanle.easybangumi4.utils.toJson
+import com.heyanle.easybangumi4.ui.common.moeSnackBar
 import com.heyanle.inject.core.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -60,7 +63,7 @@ class MigrateItemViewModel(
     val flow = _flow.asStateFlow()
 
     private val sourceStateCase: SourceStateCase by Inject.injectLazy()
-    private val cartoonInfoDao: CartoonInfoDao by Inject.injectLazy()
+    private val cartoonRepository: CartoonRepository by Inject.injectLazy()
     private val sourceCase: SourceStateCase by Inject.injectLazy()
 
     private var initJob: Job? = null
@@ -163,17 +166,6 @@ class MigrateItemViewModel(
     fun changeCover(cartoonCover: CartoonCover) {
         loadPlayJob?.cancel()
         loadPlayJob = viewModelScope.launch {
-            val bundle = sourceStateCase.awaitBundle()
-            val detailed = bundle.detailed(cartoonCover.source)
-            if (detailed == null) {
-                _flow.update {
-                    it.copy(
-                        isLoadingPlay = false,
-                        playLineList = emptyList(),
-                    )
-                }
-                return@launch
-            }
             _flow.update {
                 it.copy(
                     cartoonCover = cartoonCover,
@@ -181,25 +173,23 @@ class MigrateItemViewModel(
                     playLineList = emptyList(),
                 )
             }
-            detailed.getAll(
-                CartoonSummary(
-                    cartoonCover.id,
-                    cartoonCover.source,
-                )
-            )
-                .complete { complete ->
-                    yield()
+            when (val result = cartoonRepository.awaitCartoonInfoWithPlayLines(
+                CartoonSummary(cartoonCover.id, cartoonCover.source),
+                forceRefresh = true,
+            )) {
+                is DataResult.Ok -> {
+                    val loaded = result.data
                     _flow.update {
                         it.copy(
                             isLoadingPlay = false,
-                            playLineList = complete.data.second,
-                            cartoon = complete.data.first
+                            playLineList = loaded.playLine,
+                            cartoon = loaded.toCartoon(),
                         )
                     }
                     yield()
                     val oldPlayState = cartoonInfo.matchHistoryEpisode
                     if (oldPlayState == null) {
-                        val first = complete.data.second.firstOrNull()
+                        val first = loaded.playLine.firstOrNull()
                         if (first != null) {
                             changeEpisode(
                                 PlayLineWrapper.SORT_DEFAULT_KEY,
@@ -209,8 +199,8 @@ class MigrateItemViewModel(
                         }
                     } else {
                         val playLine =
-                            complete.data.second.find { it.episode.size == oldPlayState.first.playLine.episode.size }
-                                ?: complete.data.second.firstOrNull()
+                            loaded.playLine.find { it.episode.size == oldPlayState.first.playLine.episode.size }
+                                ?: loaded.playLine.firstOrNull()
                         if (playLine != null) {
                             val episode =
                                 playLine.episode.find { it.order == oldPlayState.second.order }
@@ -223,8 +213,9 @@ class MigrateItemViewModel(
                         }
                     }
                 }
-                .error {
-                    yield()
+                is DataResult.Error,
+                is DataResult.Loading,
+                -> {
                     _flow.update {
                         it.copy(
                             isLoadingPlay = false,
@@ -232,6 +223,7 @@ class MigrateItemViewModel(
                         )
                     }
                 }
+            }
         }
     }
 
@@ -248,10 +240,18 @@ class MigrateItemViewModel(
         }
     }
 
-    fun migrate(onSus: ()->Unit){
+    fun migrate(
+        onError: (String) -> Unit = { it.moeSnackBar() },
+        onSus: () -> Unit,
+    ) {
         viewModelScope.launch {
             val item = _flow.value
-            if(item.isMigrating || item.isLoadingCover || item.isLoadingPlay || item.isMigrated || item.cartoonCover == null){
+            val car = item.cartoon
+            if (
+                item.isMigrating || item.isLoadingCover || item.isLoadingPlay || item.isMigrated ||
+                item.cartoonCover == null || car == null
+            ) {
+                if (car == null && !item.isLoadingPlay) onError("目标番剧详情不可用")
                 return@launch
             }
             _flow.update {
@@ -260,43 +260,49 @@ class MigrateItemViewModel(
                 )
             }
 
-            val car = item.cartoon ?: return@launch
-            val bundle = sourceCase.awaitBundle()
-            val sourceName = bundle.source(car.source)?.label ?: ""
-            val episodeList = item.playLineWrapper?.sortedEpisodeList
-            val targetCartoon = CartoonInfo.fromCartoon(
-                car,
-                sourceName,
-                item.playLineList
-            ).copy(
-                tags = cartoonInfo.tags,
-                upTime = cartoonInfo.upTime,
+            val result = runCatching {
+                val bundle = sourceCase.awaitBundle()
+                val sourceName = bundle.source(car.source)?.label ?: ""
+                val episodeList = item.playLineWrapper?.sortedEpisodeList
+                val targetCartoon = CartoonInfo.fromCartoon(
+                    car,
+                    sourceName,
+                    item.playLineList
+                ).copy(
+                    lastHistoryTime = cartoonInfo.lastHistoryTime,
+                    lastPlayLineEpisodeString = episodeList?.toJson() ?: "",
+                    lastLineId = item.playLine?.id ?: "",
+                    lastLinesIndex = item.playLineList.indexOf(item.playLine),
+                    lastLineLabel = item.playLine?.label ?: "",
+                    lastEpisodeLabel = item.episode?.label ?: "",
+                    lastEpisodeId = item.episode?.id ?: "",
+                    lastEpisodeIndex = episodeList?.indexOf(item.episode) ?: -1,
+                    lastEpisodeOrder = item.episode?.order ?: -1,
+                    lastProcessTime = 0,
+                )
 
-                starTime = if (cartoonInfo.starTime == 0L) System.currentTimeMillis() else cartoonInfo.starTime,
-                lastHistoryTime = cartoonInfo.lastHistoryTime,
-                lastPlayLineEpisodeString = episodeList?.toJson() ?: "",
-                lastLineId = item.playLine?.id ?: "",
-                lastLinesIndex = item.playLineList.indexOf(item.playLine) ?: -1,
-                lastLineLabel = item.playLine?.label ?: "",
+                cartoonRepository.migrateStar(cartoonInfo.id, cartoonInfo.source, targetCartoon)
+            }.getOrElse {
+                _flow.update { state -> state.copy(isMigrating = false) }
+                onError(it.message ?: "迁移失败")
+                return@launch
+            }
 
-                lastEpisodeLabel = item.playLine?.label ?: "",
-                lastEpisodeId = item.episode?.id ?: "",
-                lastEpisodeIndex = episodeList?.indexOf(item.episode) ?: -1,
-                lastEpisodeOrder = item.episode?.order ?: -1,
-
-                lastProcessTime = 0,
-            )
-
-            cartoonInfoDao.modify(cartoonInfo = targetCartoon)
-            cartoonInfoDao.deleteStar(cartoonInfo)
-
-            _flow.update {
-                it.copy(
-                    isMigrating = false,
-                    isMigrated = true,
+            val success = result == StarMigrationResult.SUCCESS
+            _flow.update { it.copy(isMigrating = false, isMigrated = success) }
+            if (success) {
+                onSus()
+            } else {
+                onError(
+                    when (result) {
+                        StarMigrationResult.SOURCE_MISSING -> "原追番记录不存在"
+                        StarMigrationResult.SOURCE_NOT_STARRED -> "原番剧已不在追番列表"
+                        StarMigrationResult.TARGET_SAME -> "目标与原番剧相同，无需迁移"
+                        StarMigrationResult.TARGET_CONFLICT -> "目标番剧已有记录，为避免覆盖已停止迁移"
+                        StarMigrationResult.SUCCESS -> ""
+                    }
                 )
             }
-            onSus()
         }
 
     }

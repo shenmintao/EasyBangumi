@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.heyanle.easy_transformer"
-    compileSdk = 34
+    compileSdk = com.heyanle.buildsrc.Android.compileSdk
 
     defaultConfig {
         minSdk = 21
@@ -33,9 +33,9 @@ gradle.projectsEvaluated {
 
 
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-reflect:1.9.21")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:${build.versions.kotlin.get()}")
 
-    val media3 = "1.4.0-alpha02"
+    val media3 = "1.9.2"
     api("androidx.media3:media3-exoplayer:$media3")
     api("androidx.media3:media3-exoplayer-dash:$media3")
     api("androidx.media3:media3-ui:$media3")

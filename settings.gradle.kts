@@ -14,6 +14,9 @@ dependencyResolutionManagement {
         mavenCentral()
         google()
         maven {
+            url = uri("https://pkgs.dev.azure.com/MicrosoftDeviceSDK/DuoSDK-Public/_packaging/Duo-SDK-Feed/maven/v1")
+        }
+        maven {
             url = uri("http://4thline.org/m2")
             isAllowInsecureProtocol = true
         }
@@ -36,7 +39,14 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "EasyBangumi"
+includeBuild("third_party/m3u8-ad-audio-probe") {
+    dependencySubstitution {
+        substitute(module("io.github.0o755:ad-audio-probe-runtime")).using(project(":probe-runtime"))
+        substitute(module("io.github.0o755:ad-audio-probe-media3-1.9.2")).using(project(":probe-media3-1-9"))
+    }
+}
 include(":app")
+include(":baselineprofile")
 include(":easy-crasher")
 include(":easy-i18n")
 include(":inject")
@@ -44,6 +54,4 @@ include(":lib_upnp")
 
 include(":easy-player2")
 include(":easy_transformer")
-
-
 

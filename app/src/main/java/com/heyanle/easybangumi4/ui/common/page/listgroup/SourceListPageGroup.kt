@@ -27,6 +27,10 @@ import com.heyanle.easybangumi4.ui.common.ErrorPage
 import com.heyanle.easybangumi4.ui.common.FastScrollToTopFab
 import com.heyanle.easybangumi4.ui.common.LoadingPage
 import com.heyanle.easybangumi4.ui.common.page.list.SourceListPage
+import com.heyanle.easybangumi4.ui.common.page.CartoonPagePresentation
+import com.heyanle.easybangumi4.ui.common.page.sourcePageTabRole
+import com.heyanle.easybangumi4.v2.theme.V2Theme
+import com.heyanle.easybangumi4.v2.theme.V2Tokens
 import com.heyanle.easybangumi4.ui.common.cover_star.CoverStarViewModel
 import com.heyanle.easybangumi4.utils.TvUtils
 import kotlinx.coroutines.delay
@@ -38,7 +42,9 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun SourceListPageGroup(
-    listPageGroup: SourcePage.Group
+    listPageGroup: SourcePage.Group,
+    presentation: CartoonPagePresentation = CartoonPagePresentation.Legacy,
+    hasParentTabs: Boolean = true,
 ) {
     val vm =
         viewModel<SourceListGroupViewModel>(factory = SourceListGroupViewModelFactory(listPageGroup))
@@ -58,7 +64,7 @@ fun SourceListPageGroup(
                 )
             }
             is SourceListGroupViewModel.GroupState.Group -> {
-                SourceListWithGroup(vm, it)
+                SourceListWithGroup(vm, it, presentation, hasParentTabs)
             }
             is SourceListGroupViewModel.GroupState.Error -> {
                 ErrorPage(
@@ -82,6 +88,8 @@ fun SourceListPageGroup(
 fun SourceListWithGroup(
     groupVM: SourceListGroupViewModel,
     groupState: SourceListGroupViewModel.GroupState.Group,
+    presentation: CartoonPagePresentation,
+    hasParentTabs: Boolean = true,
 ){
 
     val coverStarViewModel = viewModel<CoverStarViewModel>()
@@ -108,15 +116,20 @@ fun SourceListWithGroup(
             }
     ) {
         SourceListPage(
-            coverStarViewModel, groupState.list, lazyGridState, lazyStaggeredGridState
+            coverStarViewModel,
+            groupState.list,
+            lazyGridState,
+            lazyStaggeredGridState,
+            presentation,
+            tabRole = sourcePageTabRole(hasParentTabs, groupState.list.size),
         )
         if (!isTv) {
             PullRefreshIndicator(
                 refreshing,
                 state,
                 Modifier.align(Alignment.TopCenter),
-                backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                backgroundColor = if (presentation == CartoonPagePresentation.V2) V2Tokens.SurfaceMuted else MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = if (presentation == CartoonPagePresentation.V2) V2Theme.colors.accent else MaterialTheme.colorScheme.onSecondaryContainer,
             )
         }
         FastScrollToTopFab(listState = lazyGridState, after = 20)

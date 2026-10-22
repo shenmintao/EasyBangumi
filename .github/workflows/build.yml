@@ -13,6 +13,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          # third_party/m3u8-ad-audio-probe is an included Gradle build.
+          submodules: recursive
 
       - name: Setup Java JDK
         uses: actions/setup-java@v4
@@ -24,19 +27,19 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.gradle/caches
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', 'gradle/*.toml') }}
           restore-keys: ${{ runner.os }}-gradle
 
-      - name: Build Debug APK
+      - name: Build Debug APKs
         run: |
           chmod +x ./gradlew
-          ./gradlew :app:assembleDebug
+          ./gradlew :app:assembleNormalDebug :app:assembleCompatDebug
         env:
           BUGLY_APPID: "debug"
 
-      - name: Archive Debug APK
+      - name: Archive Debug APKs
         uses: actions/upload-artifact@v4
         with:
-          name: easybangumi-debug.apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: easybangumi-debug-apks
+          path: app/build/outputs/apk/*/debug/*.apk
           compression-level: 0

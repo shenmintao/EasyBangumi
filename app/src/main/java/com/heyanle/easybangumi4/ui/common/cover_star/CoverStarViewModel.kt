@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.heyanle.easybangumi4.cartoon.entity.CartoonInfo
 import com.heyanle.easybangumi4.cartoon.entity.CartoonTag
-import com.heyanle.easybangumi4.cartoon.repository.db.dao.CartoonInfoDao
+import com.heyanle.easybangumi4.cartoon.repository.CartoonRepository
 import com.heyanle.easybangumi4.cartoon.star.CartoonStarController
 import com.heyanle.easybangumi4.plugin.api.entity.CartoonCover
 import com.heyanle.easybangumi4.ui.common.MoeDialogData
@@ -26,8 +26,13 @@ import kotlinx.coroutines.launch
  */
 class CoverStarViewModel : ViewModel() {
 
-    private val cartoonInfoDao: CartoonInfoDao by Inject.injectLazy()
+    private val cartoonRepository: CartoonRepository by Inject.injectLazy()
     private val cartoonStarController: CartoonStarController by Inject.injectLazy()
+    private val pendingStarDialogs = mutableSetOf<String>()
+
+    private fun releasePendingStarDialog(key: String) {
+        synchronized(pendingStarDialogs) { pendingStarDialogs.remove(key) }
+    }
 
     data class State(
         val startList: List<CartoonInfo> = emptyList(),
@@ -46,7 +51,7 @@ class CoverStarViewModel : ViewModel() {
 
     init {
         viewModelScope.launch {
-            cartoonInfoDao.flowAllStar().collectLatest { list ->
+            cartoonRepository.flowAllStar().collectLatest { list ->
                 _stateFlow.update {
                     it.copy(
                         startList = list
@@ -67,15 +72,25 @@ class CoverStarViewModel : ViewModel() {
 
 
     fun dispatchStar(cartoonCover: CartoonCover) {
+        val pendingKey = "${cartoonCover.source}:${cartoonCover.id}"
+        if (!synchronized(pendingStarDialogs) { pendingStarDialogs.add(pendingKey) }) return
         viewModelScope.launch {
-            cartoonInfoDao.transaction {
-                val old = cartoonInfoDao.getByCartoonSummary(cartoonCover.id, cartoonCover.source)
+            var dialogShown = false
+            try {
+                val old = cartoonRepository.cachedCartoonInfo(cartoonCover.id, cartoonCover.source)
                 if (old != null && old.starTime > 0) {
-                    cartoonInfoDao.modify(old.copy(starTime = 0, tags = "", upTime = 0))
+                    cartoonRepository.updateCartoonInfo(
+                        cartoonCover.id,
+                        cartoonCover.source,
+                    ) { it.copy(starTime = 0, tags = "", upTime = 0) }
+                    return@launch
                 }
                 val tl = cartoonStarController.cartoonTagFlow.first().tagList
                 if (tl.find { !it.isInner && !it.isDefault } != null) {
-                    MoeDialogData.Compose {
+                    dialogShown = true
+                    MoeDialogData.Compose(
+                        onDismiss = { releasePendingStarDialog(pendingKey) },
+                    ) {
                         CoverStarDialog(
                             true,
                             cartoonCover,
@@ -91,32 +106,43 @@ class CoverStarViewModel : ViewModel() {
                 } else {
                     realStar(cartoonCover)
                 }
+            } finally {
+                if (!dialogShown) releasePendingStarDialog(pendingKey)
             }
-
         }
     }
 
     fun realStar(cartoonCover: CartoonCover, tagList: List<CartoonTag>? = null) {
         viewModelScope.launch {
-            cartoonInfoDao.transaction {
-                val old = cartoonInfoDao.getByCartoonSummary(cartoonCover.id, cartoonCover.source)
-                if (old == null) {
-                    cartoonInfoDao.insert(
-                        CartoonInfo.fromCartoonCover(cartoonCover, tagList)
-                            .copy(starTime = System.currentTimeMillis())
-                    )
+            val fallback = CartoonInfo.fromCartoonCover(cartoonCover, tagList)
+            cartoonRepository.updateCartoonInfo(
+                cartoonCover.id,
+                cartoonCover.source,
+                fallback = fallback,
+            ) { old ->
+                if (old.starTime > 0) {
+                    old.copy(starTime = 0, tags = "", upTime = 0)
                 } else {
-                    if (old.starTime > 0) {
-                        cartoonInfoDao.modify(old.copy(starTime = 0, tags = "", upTime = 0))
-                    } else {
-                        cartoonInfoDao.modify(
-                            old.copy(
-                                starTime = System.currentTimeMillis(),
-                                tags = tagList?.joinToString(", ") { it.label } ?: ""))
-                    }
+                    old.copy(
+                        starTime = System.currentTimeMillis(),
+                        tags = tagList?.joinToString(", ") { it.label }.orEmpty(),
+                    )
                 }
             }
+        }
+    }
 
+    /** Idempotent batch entry used by the V2 local-library selection toolbar. */
+    fun starAll(cartoonCovers: Collection<CartoonCover>) {
+        viewModelScope.launch {
+            cartoonStarController.starAll(cartoonCovers)
+        }
+    }
+
+    /** Idempotent batch entry used by the V2 local-library selection toolbar. */
+    fun unstarAll(cartoonCovers: Collection<CartoonCover>) {
+        viewModelScope.launch {
+            cartoonStarController.unstarAll(cartoonCovers)
         }
     }
 

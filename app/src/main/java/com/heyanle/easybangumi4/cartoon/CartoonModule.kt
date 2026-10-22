@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import com.heyanle.easybangumi4.cartoon.story.download.CartoonDownloadPreference
+import com.heyanle.easybangumi4.cartoon.story.download.CartoonDownloadTaskManager
 import com.heyanle.easybangumi4.cartoon.story.download.req.CartoonDownloadReqController
 import com.heyanle.easybangumi4.cartoon.story.local.CartoonLocalController
 import com.heyanle.easybangumi4.cartoon.story.local.LocalCartoonPreference
@@ -14,12 +15,20 @@ import com.heyanle.easybangumi4.cartoon.star.CartoonStarController
 import com.heyanle.easybangumi4.cartoon.star.CartoonTagsController
 import com.heyanle.easybangumi4.cartoon.story.CartoonStoryController
 import com.heyanle.easybangumi4.cartoon.story.CartoonStoryControllerImpl
+import com.heyanle.easybangumi4.cartoon.story.bound.BoundMediaCase
+import com.heyanle.easybangumi4.cartoon.story.bound.CartoonEpisodeBindingController
+import com.heyanle.easybangumi4.cartoon.story.bound.FlatDownloadController
+import com.heyanle.easybangumi4.cartoon.story.bound.FlatDownloadPreference
 import com.heyanle.easybangumi4.cartoon.story.download.action.AriaAction
 import com.heyanle.easybangumi4.cartoon.story.download.action.BaseAction
 import com.heyanle.easybangumi4.cartoon.story.download.action.CopyAndNfoAction
+import com.heyanle.easybangumi4.cartoon.story.download.action.CopyToFlatAction
 import com.heyanle.easybangumi4.cartoon.story.download.action.ParseAction
 import com.heyanle.easybangumi4.cartoon.story.download.action.TranscodeAction
 import com.heyanle.easybangumi4.cartoon.story.download.action.TransformerAction
+import com.heyanle.easybangumi4.cartoon.story.download.engine.QuickDownloadAction
+import com.heyanle.easybangumi4.cartoon.story.download.engine.QuickDownloadEngineRegistry
+import com.heyanle.easybangumi4.cartoon.story.download.engine.OkHttpDirectDownloadEngine
 import com.heyanle.easybangumi4.cartoon.story.download.runtime.CartoonDownloadDispatcher
 import com.heyanle.inject.api.InjectModule
 import com.heyanle.inject.api.InjectScope
@@ -59,7 +68,12 @@ class CartoonModule(
         }
 
         addSingletonFactory {
-            CartoonRepository(get(), get(), get(), get())
+            CartoonRepository(
+                cartoonInfoDao = get(),
+                cartoonNetworkDataSource = get(),
+                sourceStateCase = get(),
+                cloudSyncEventBatcher = get(),
+            )
         }
 
 //        addSingletonFactory {
@@ -75,7 +89,7 @@ class CartoonModule(
         }
 
         addSingletonFactory {
-            CartoonUpdateController(get(), get())
+            CartoonUpdateController(get())
         }
 
         // download
@@ -84,10 +98,11 @@ class CartoonModule(
         addPerKeyFactory<BaseAction, String> {
             when(it) {
                 ParseAction.NAME -> ParseAction(get())
-                AriaAction.NAME -> AriaAction(application, get())
+                QuickDownloadAction.NAME -> QuickDownloadAction(get())
                 TranscodeAction.NAME -> TranscodeAction(application)
                 TransformerAction.NAME -> TransformerAction(get(), get())
                 CopyAndNfoAction.NAME -> CopyAndNfoAction()
+                CopyToFlatAction.NAME -> CopyToFlatAction(get(), get(), get())
                 else -> throw IllegalArgumentException("not found action: $it")
             }
         }
@@ -101,9 +116,27 @@ class CartoonModule(
             CartoonDownloadPreference(get())
         }
 
+        addSingletonFactory {
+            AriaAction(application, get())
+        }
+
+        addSingletonFactory {
+            OkHttpDirectDownloadEngine(application)
+        }
+
+        addSingletonFactory {
+            QuickDownloadEngineRegistry.create(
+                get<AriaAction>(),
+                get<OkHttpDirectDownloadEngine>(),
+            )
+        }
 
         addSingletonFactory {
             CartoonDownloadReqController(get())
+        }
+
+        addSingletonFactory {
+            CartoonDownloadTaskManager(get(), get(), get())
         }
 
         // local
@@ -116,10 +149,28 @@ class CartoonModule(
             LocalCartoonPreference(get(), get(), get())
         }
 
+        // bound（扁平下载目录与集级绑定）
+
+        addSingletonFactory {
+            FlatDownloadPreference(get(), get())
+        }
+
+        addSingletonFactory {
+            CartoonEpisodeBindingController(get())
+        }
+
+        addSingletonFactory {
+            FlatDownloadController(get())
+        }
+
+        addSingletonFactory {
+            BoundMediaCase(get(), get(), get())
+        }
+
 
 
         addSingletonFactory {
-            CartoonStoryControllerImpl(get(), get(), get())
+            CartoonStoryControllerImpl(get(), get(), get(), get())
         }
 
         addAlias<CartoonStoryControllerImpl, CartoonStoryController>()

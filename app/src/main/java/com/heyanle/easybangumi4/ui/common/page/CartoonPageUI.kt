@@ -38,8 +38,15 @@ import com.heyanle.easybangumi4.ui.common.page.list.SourceListViewModelFactory
 import com.heyanle.easybangumi4.ui.common.page.listgroup.SourceListPageGroup
 import com.heyanle.easybangumi4.ui.common.cover_star.CoverStarViewModel
 import com.heyanle.easybangumi4.utils.TvUtils
+import com.heyanle.easybangumi4.v2.theme.V2Theme
+import com.heyanle.easybangumi4.v2.theme.V2Tokens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+enum class CartoonPagePresentation {
+    Legacy,
+    V2,
+}
 
 /**
  * Created by heyanlin on 2024/2/9 10:28.
@@ -47,7 +54,9 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterialApi::class)
 @Composable
 fun CartoonPageUI(
-    cartoonPage: SourcePage
+    cartoonPage: SourcePage,
+    presentation: CartoonPagePresentation = CartoonPagePresentation.Legacy,
+    hasParentTabs: Boolean = true,
 ) {
     when (cartoonPage) {
         is SourcePage.SingleCartoonPage -> {
@@ -82,15 +91,16 @@ fun CartoonPageUI(
                     page = cartoonPage,
                     lazyGridState = lazyGridState,
                     lazyStaggeredGridState = lazyStaggeredGridState,
-                    vm = vm
+                    vm = vm,
+                    presentation = presentation,
                 )
                 if (!isTv) {
                     PullRefreshIndicator(
                         refreshing,
                         state,
                         Modifier.align(Alignment.TopCenter),
-                        backgroundColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        backgroundColor = if (presentation == CartoonPagePresentation.V2) V2Tokens.SurfaceMuted else MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = if (presentation == CartoonPagePresentation.V2) V2Theme.colors.accent else MaterialTheme.colorScheme.onSecondaryContainer,
                     )
                 }
                 FastScrollToTopFab(listState = lazyGridState, after = 20)
@@ -98,7 +108,7 @@ fun CartoonPageUI(
         }
 
         is SourcePage.Group -> {
-            SourceListPageGroup(cartoonPage)
+            SourceListPageGroup(cartoonPage, presentation, hasParentTabs)
         }
 
         else -> {}

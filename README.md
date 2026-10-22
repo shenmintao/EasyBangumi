@@ -7,6 +7,8 @@
   <img alt="license" src="https://img.shields.io/github/license/easybangumiorg/EasyBangumi" />
   <img alt="downloads" src="https://img.shields.io/github/downloads/easybangumiorg/EasyBangumi/total" />
   <img alt="issues" src="https://img.shields.io/github/issues/easybangumiorg/EasyBangumi" />
+  <br />
+  <a href="https://trendshift.io/repositories/14682?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-14682" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/14682/daily?language=Kotlin" alt="easybangumiorg%2FEasyBangumi | Trendshift" width="250" height="55"/></a>
 </p>
 
 # 须知
@@ -54,4 +56,8 @@
 
 # [更新列表](https://github.com/easybangumiorg/EasyBangumi/blob/main/app/src/main/assets/update_log.txt)  
 
+# 许可证
 
+本项目自引入 libmpv 播放引擎的版本起按 GNU General Public License v3.0 发布。
+历史版本仍适用其发布时附带的许可证。libmpv、mpv、FFmpeg 与 Anime4K 等第三方组件
+保留各自的版权与许可证声明。

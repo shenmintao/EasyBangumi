@@ -12,6 +12,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
+enum class StarMigrationResult {
+    SUCCESS,
+    SOURCE_MISSING,
+    SOURCE_NOT_STARRED,
+    TARGET_SAME,
+    TARGET_CONFLICT,
+}
+
 /**
  * Created by heyanle on 2023/12/16.
  * https://github.com/heyanLE
@@ -37,6 +45,9 @@ interface CartoonInfoDao {
 
     @Query("SELECT * FROM CartoonInfoV2 WHERE id=(:id) AND source=(:source)")
     suspend fun getByCartoonSummary(id: String, source: String): CartoonInfo?
+
+    @Query("SELECT * FROM CartoonInfoV2 WHERE id=(:id) AND source=(:source)")
+    fun flowByCartoonSummary(id: String, source: String): Flow<CartoonInfo?>
 
     @Query("SELECT * FROM CartoonInfoV2 WHERE source=(:source)")
     suspend fun getAllBySource(source: String): List<CartoonInfo>
@@ -100,6 +111,37 @@ interface CartoonInfoDao {
             ))
         }
 
+    }
+
+    /**
+     * Atomically creates the mapped target follow and clears follow metadata from the source.
+     * Existing target rows are treated as conflicts so history is never silently overwritten.
+     */
+    @Transaction
+    suspend fun migrateStar(
+        sourceId: String,
+        sourceKey: String,
+        targetDraft: CartoonInfo,
+    ): StarMigrationResult {
+        if (sourceId == targetDraft.id && sourceKey == targetDraft.source) {
+            return StarMigrationResult.TARGET_SAME
+        }
+        val source = getByCartoonSummary(sourceId, sourceKey)
+            ?: return StarMigrationResult.SOURCE_MISSING
+        if (source.starTime <= 0) return StarMigrationResult.SOURCE_NOT_STARRED
+        if (getByCartoonSummary(targetDraft.id, targetDraft.source) != null) {
+            return StarMigrationResult.TARGET_CONFLICT
+        }
+
+        insert(
+            targetDraft.copy(
+                tags = source.tags,
+                starTime = source.starTime,
+                upTime = source.upTime,
+            )
+        )
+        modify(source.copy(starTime = 0, tags = "", upTime = 0))
+        return StarMigrationResult.SUCCESS
     }
 
     // star

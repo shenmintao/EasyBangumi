@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -14,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ColorLens
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DeveloperMode
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayCircle
@@ -27,14 +29,21 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.heyanle.easy_i18n.R
 import com.heyanle.easybangumi4.LocalNavController
+import com.heyanle.easybangumi4.MainActivitySwitcher
 import com.heyanle.easybangumi4.navigationSetting
+import com.heyanle.easybangumi4.setting.SettingPreferences
+import com.heyanle.easybangumi4.ui.common.BooleanPreferenceItem
+import com.heyanle.inject.core.Inject
 
 /**
  * Created by HeYanLe on 2023/8/5 23:02.
@@ -64,6 +73,13 @@ sealed class SettingPage(
         PlayerSetting(nestedScrollConnection = it)
     })
 
+    /** V2 owns the dedicated display page; legacy falls back to its combined player settings. */
+    data object Danmaku : SettingPage("danmaku", {
+        Text(text = stringResource(id = R.string.danmaku_setting))
+    }, {
+        PlayerSetting(nestedScrollConnection = it)
+    })
+
     data object Download : SettingPage("download", {
         Text(text = stringResource(id = R.string.download_setting))
     }, {
@@ -82,15 +98,33 @@ sealed class SettingPage(
         LocalExtensionSetting(nestedScrollConnection = it)
     })
 
+    data object DanmakuSource : SettingPage("danmaku_source", {
+        Text(text = "弹幕源")
+    }, {
+        DanmakuSourceSetting(nestedScrollConnection = it)
+    })
+
+    data object CloudSync : SettingPage("cloud_sync", {
+        Text(text = "数据云同步")
+    }, {
+        Text(
+            text = "请在新版界面中配置数据云同步",
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
+        )
+    })
+
 }
 
 val settingPages = mapOf(
     SettingPage.Appearance.router to SettingPage.Appearance,
     SettingPage.Player.router to SettingPage.Player,
+    SettingPage.Danmaku.router to SettingPage.Danmaku,
     SettingPage.Download.router to SettingPage.Download,
     SettingPage.First.router to SettingPage.First,
     SettingPage.Developers.router to SettingPage.Developers,
-    SettingPage.LocalSource.router to SettingPage.LocalSource
+    SettingPage.LocalSource.router to SettingPage.LocalSource,
+    SettingPage.DanmakuSource.router to SettingPage.DanmakuSource,
+    SettingPage.CloudSync.router to SettingPage.CloudSync,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -142,6 +176,11 @@ fun ColumnScope.FirstSetting(
     nestedScrollConnection: NestedScrollConnection
 ){
     val nav = LocalNavController.current
+    val context = LocalContext.current
+    val settingPreferences: SettingPreferences by Inject.injectLazy()
+    val useV2Ui by settingPreferences.useV2Ui.flow().collectAsState(
+        initial = settingPreferences.useV2Ui.get(),
+    )
     Column(
         modifier = Modifier
             .weight(1f)
@@ -149,6 +188,15 @@ fun ColumnScope.FirstSetting(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        BooleanPreferenceItem(
+            title = { Text(text = "新版界面") },
+            subtitle = { Text(text = "切换后将返回首页") },
+            change = useV2Ui,
+            onChange = {
+                MainActivitySwitcher.switch(context, it)
+            },
+        )
+
         ListItem(
             modifier = Modifier.clickable {
                 nav.navigationSetting(SettingPage.Appearance)
@@ -186,6 +234,31 @@ fun ColumnScope.FirstSetting(
                     contentDescription = stringResource(id = R.string.download_setting)
                 )
             }
+        )
+
+        ListItem(
+            modifier = Modifier.clickable {
+                nav.navigationSetting(SettingPage.DanmakuSource)
+            },
+            headlineContent = { Text(text = "弹幕源") },
+            supportingContent = { Text(text = "管理内置弹幕服务") },
+            leadingContent = {
+                Icon(
+                    Icons.Filled.PlayCircle,
+                    contentDescription = "弹幕源"
+                )
+            }
+        )
+
+        ListItem(
+            modifier = Modifier.clickable {
+                nav.navigationSetting(SettingPage.CloudSync)
+            },
+            headlineContent = { Text(text = "数据云同步") },
+            supportingContent = { Text(text = "WebDAV、收藏和历史") },
+            leadingContent = {
+                Icon(Icons.Filled.CloudSync, contentDescription = "数据云同步")
+            },
         )
 
         ListItem(

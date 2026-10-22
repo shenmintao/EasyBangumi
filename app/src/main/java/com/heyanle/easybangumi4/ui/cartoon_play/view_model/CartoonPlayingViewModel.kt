@@ -1,8 +1,8 @@
 package com.heyanle.easybangumi4.ui.cartoon_play.view_model
 
 import android.content.Intent
-import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
+import android.os.Build
 import android.util.Log
 import android.view.TextureView
 import androidx.annotation.OptIn
@@ -18,7 +18,10 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSourceException
 import androidx.media3.exoplayer.ExoPlayer
 import com.heyanle.easybangumi4.APP
-import com.heyanle.easybangumi4.cartoon.repository.db.dao.CartoonInfoDao
+import com.heyanle.easybangumi4.BuildConfig
+import com.heyanle.easybangumi4.cartoon.repository.CartoonRepository
+import com.heyanle.easybangumi4.cartoon.story.bound.BoundMedia
+import com.heyanle.easybangumi4.cartoon.story.bound.BoundMediaCase
 import com.heyanle.easybangumi4.cartoon.story.local.source.LocalSource
 import com.heyanle.easybangumi4.case.SourceStateCase
 import com.heyanle.easybangumi4.exo.CartoonMediaSourceFactory
@@ -31,26 +34,39 @@ import com.heyanle.easybangumi4.plugin.api.entity.CartoonSummary
 import com.heyanle.easybangumi4.plugin.api.entity.Episode
 import com.heyanle.easybangumi4.plugin.api.entity.PlayLine
 import com.heyanle.easybangumi4.plugin.api.entity.PlayerInfo
+import com.heyanle.easybangumi4.player.mpv.MpvAnime4KStatus
+import com.heyanle.easybangumi4.player.mpv.createMpvPlaybackController
+import com.heyanle.easybangumi4.player.exo.ExoAdAudioProbeController
 import com.heyanle.easybangumi4.plugin.source.utils.VerificationHelper
+import com.heyanle.easybangumi4.ui.cartoon_play.HistoryResumeNoticeController
+import com.heyanle.easybangumi4.ui.cartoon_play.PlayerSleepTimer
 import com.heyanle.easybangumi4.ui.cartoon_play.cartoon_recorded.CartoonRecordedModel
+import com.heyanle.easybangumi4.ui.common.moeSnackBar
 import com.heyanle.easybangumi4.utils.CoroutineProvider
-import com.heyanle.easybangumi4.utils.MediaAndroidUtils
 import com.heyanle.easybangumi4.utils.getCachePath
 import com.heyanle.easybangumi4.utils.logi
 import com.heyanle.easybangumi4.utils.stringRes
-import com.heyanle.easybangumi4.utils.toast
 import com.heyanle.inject.core.Inject
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
+import loli.ball.easyplayer2.EasyPlaybackState
+import loli.ball.easyplayer2.EasyPlayerController
+import loli.ball.easyplayer2.ExoEasyPlayerController
+import loli.ball.easyplayer2.render.EasyPlayerRender
 import loli.ball.easyplayer2.texture.TexturePlayerRender
 import java.io.File
 
@@ -62,8 +78,42 @@ import java.io.File
 class CartoonPlayingViewModel(
 ) : ViewModel(), Player.Listener, TextureView.SurfaceTextureListener {
 
+    data class PlaybackDiagnostic(
+        val mediaUrl: String,
+        val headers: Map<String, String>,
+    )
+
+    internal enum class ContinuationAction {
+        KEEP_PLAYER,
+        LOAD_RESOLVED_MEDIA,
+        RESOLVE_SOURCE,
+    }
+
     companion object {
         const val TAG = "CartoonPlayingViewModel"
+
+        /**
+         * Source resolution and player attachment are separate stages. Once a target has a
+         * resolved [PlayerInfo], losing a Surface/player media queue must never call the source
+         * plugin again; the player can rebuild its own connection from the resolved URI.
+         */
+        internal fun continuationAction(
+            hasResolvedTarget: Boolean,
+            playerHasMedia: Boolean,
+        ): ContinuationAction = when {
+            hasResolvedTarget && playerHasMedia -> ContinuationAction.KEEP_PLAYER
+            hasResolvedTarget -> ContinuationAction.LOAD_RESOLVED_MEDIA
+            else -> ContinuationAction.RESOLVE_SOURCE
+        }
+
+        internal fun shouldUseLocalVariant(
+            sessionPreference: Boolean?,
+            hasResolvedLocal: Boolean,
+        ): Boolean = when (sessionPreference) {
+            true -> true
+            false -> false
+            null -> hasResolvedLocal
+        }
 
         internal fun isSamePlaybackTarget(
             previousSummary: CartoonSummary?,
@@ -79,17 +129,114 @@ class CartoonPlayingViewModel(
         }
     }
 
+    /**
+     * 页面跳转会销毁播放器视图，并可能间接清空 ExoPlayer 的媒体队列，但导航返回时
+     * [CartoonPlayingViewModel] 本身仍然存活。恢复点因此由 ViewModel 持有，而不是交给
+     * Composable 或异步落库的历史记录，避免返回页面时从 0 重新加载。
+     */
+    internal class PlaybackResumeCheckpoint {
+        data class ResumeDirective(
+            val positionMs: Long,
+            val playWhenReady: Boolean,
+        )
+
+        private data class Target(
+            val summary: CartoonSummary,
+            val playLine: PlayLine,
+            val episode: Episode,
+        )
+
+        private var target: Target? = null
+        private var positionMs: Long = -1L
+        private var playWhenReady: Boolean = true
+
+        fun capture(
+            summary: CartoonSummary?,
+            playLine: PlayLine?,
+            episode: Episode?,
+            positionMs: Long,
+            playWhenReady: Boolean,
+        ) {
+            if (summary == null || playLine == null || episode == null || positionMs < 0L) {
+                return
+            }
+            target = Target(summary, playLine, episode)
+            this.positionMs = positionMs
+            this.playWhenReady = playWhenReady
+        }
+
+        /**
+         * 显式传入的播放进度（例如从历史页进入）优先于页面恢复点。恢复点只消费一次，
+         * 且仅能用于完全相同的番剧、线路和选集，避免串到用户主动切换的新内容。
+         */
+        fun consume(
+            summary: CartoonSummary,
+            playLine: PlayLine,
+            episode: Episode,
+            explicitPositionMs: Long,
+        ): ResumeDirective {
+            val isMatchingCheckpoint = target == Target(summary, playLine, episode)
+            val checkpointPosition = positionMs.takeIf {
+                explicitPositionMs < 0L && isMatchingCheckpoint
+            } ?: -1L
+            val directive = ResumeDirective(
+                positionMs = if (explicitPositionMs >= 0L) explicitPositionMs else checkpointPosition,
+                playWhenReady = if (isMatchingCheckpoint) playWhenReady else true,
+            )
+            clear()
+            return directive
+        }
+
+        private fun clear() {
+            target = null
+            positionMs = -1L
+            playWhenReady = true
+        }
+    }
+
     // 播放器状态 =================================================
-    private val exoPlayerBuilder: ExoPlayer.Builder by Inject.injectLazy()
-    val exoPlayer = exoPlayerBuilder.build().apply {
-        addListener(this@CartoonPlayingViewModel)
+    private val settingPreferences: SettingPreferences by Inject.injectLazy()
+    private fun buildPlayer(): ExoPlayer = ExoPlayer.Builder(APP)
+        .setSeekBackIncrementMs(settingPreferences.fastSecond.get() * 1_000L)
+        .setSeekForwardIncrementMs(settingPreferences.fastSecond.get() * 1_000L)
+        .build()
+        .apply {
+            addListener(this@CartoonPlayingViewModel)
+        }
+    val exoPlayer: ExoPlayer = buildPlayer()
+    private val exoPlayerController = ExoEasyPlayerController(exoPlayer)
+    private val requestedPlaybackEngine = settingPreferences.playbackEngine.get()
+    private val mpvPlayerController = if (
+        BuildConfig.HAS_MPV &&
+        requestedPlaybackEngine == SettingPreferences.PlaybackEngine.MPV &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+    ) {
+        runCatching { createMpvPlaybackController(APP, settingPreferences) }
+            .onFailure { Log.e(TAG, "mpv init failed; fallback to ExoPlayer", it) }
+            .getOrNull()
+    } else {
+        null
+    }
+    val playerController: EasyPlayerController = mpvPlayerController ?: exoPlayerController
+    val activePlaybackEngine: SettingPreferences.PlaybackEngine = if (mpvPlayerController != null) {
+        SettingPreferences.PlaybackEngine.MPV
+    } else {
+        SettingPreferences.PlaybackEngine.EXO_PLAYER
+    }
+    val isMpvEngine: Boolean get() = activePlaybackEngine == SettingPreferences.PlaybackEngine.MPV
+    private val exoAdAudioProbeController = if (isMpvEngine) null else {
+        ExoAdAudioProbeController(APP, exoPlayer, settingPreferences)
     }
 
     // 渲染器 =================================================
-    val easyTextRenderer: TexturePlayerRender = TexturePlayerRender()
-        .apply {
+    private fun buildTextureRenderer(): TexturePlayerRender =
+        TexturePlayerRender().apply {
             setExtSurfaceTextureListener(this@CartoonPlayingViewModel)
         }
+    // ExoPlayer 也统一使用 TextureView，恢复截图与录屏依赖的可读像素帧；mpv 仍沿用
+    // TextureView 以保持横竖屏切换时的 BufferQueue。
+    val render: EasyPlayerRender = buildTextureRenderer()
+    val easyTextRenderer: TexturePlayerRender get() = render as TexturePlayerRender
 
     // 当前播放番剧缓存 =================================================
     private var cartoonPlayingState: CartoonPlayViewModel.CartoonPlayState? = null
@@ -97,10 +244,178 @@ class CartoonPlayingViewModel(
     private var playingEpisode: Episode? = null
     private var playingInfo: PlayerInfo? = null
     private var playingInfoIsCache: Boolean = false
+    private var resolvedPlayback: ResolvedPlayback? = null
+
+    // 本地代播槽：同一播放目标在本地/云端之间反复切换时，避免重复查绑定与重复解析
+    private var resolvedLocal: ResolvedLocal? = null
+
+    // 播放变体偏好：null=默认（有本地即本地）；true=本地优先；false=云端优先。
+    // 由路由入参初始化，会话内手动切换后覆盖，不持久化。
+    private var sessionPreferLocal: Boolean? = null
+    private val _isPlayingLocal = MutableStateFlow(false)
+    val isPlayingLocal: StateFlow<Boolean> = _isPlayingLocal.asStateFlow()
+
     private var forceNoCacheRetrying: Boolean = false
     private var forceClearMediaCacheRetrying: Boolean = false
+    private val playbackResumeCheckpoint = PlaybackResumeCheckpoint()
+    private val historyResumeController = HistoryResumeNoticeController()
+    val historyResumeNotice = historyResumeController.notice
+
+    fun cancelHistoryResume() {
+        if (historyResumeController.cancelJump()) {
+            playerController.seekTo(0L)
+            trySaveHistory(positionMs = 0L)
+        }
+    }
+
+    private fun showHistoryResumeIfReady() {
+        val notice = historyResumeController.onReady() ?: return
+        viewModelScope.launch {
+            delay(6_000L)
+            historyResumeController.dismiss(notice.id)
+        }
+    }
+
+    data class AutoLineSwitchNotice(
+        val lineLabel: String,
+        val attempt: Int,
+        val maxAttempts: Int = 3,
+        val isConnecting: Boolean = false,
+    )
+
+    private val automaticLineFallback = AutomaticLineFallback()
+    private var playbackSelection: CartoonPlayViewModel? = null
+    private var automaticLineSwitchJob: Job? = null
+    private var automaticLineTarget: CartoonPlayViewModel.CartoonPlayState? = null
+    private var cancelledAutomaticTarget: CartoonPlayViewModel.CartoonPlayState? = null
+    private var automaticLineFailure: PlayingState? = null
+    private val _autoLineSwitch = MutableStateFlow<AutoLineSwitchNotice?>(null)
+    val autoLineSwitch: StateFlow<AutoLineSwitchNotice?> = _autoLineSwitch.asStateFlow()
+
+    /** Bind both playback pages to their selection state; selection remains owned by that VM. */
+    fun bindPlaybackSelection(selection: CartoonPlayViewModel) {
+        if (playbackSelection === selection) return
+        playbackSelection?.onManualPlaybackSelection = null
+        playbackSelection?.onSameTargetPlaybackRetry = null
+        playbackSelection = selection
+        selection.onManualPlaybackSelection = {
+            sleepTimer.onPlaybackStarted()
+            historyResumeController.clear()
+            resetAutomaticLineFallback(restoreError = true)
+        }
+        selection.onSameTargetPlaybackRetry = { target ->
+            if (_playingState.value.isError || !playerController.hasMedia || !playerController.playWhenReady) {
+                retryPlaybackTarget(target)
+            }
+        }
+    }
+
+    fun cancelAutomaticLineSwitch() {
+        val notice = _autoLineSwitch.value ?: return
+        // The selection update and the page's LaunchedEffect are separate main-loop turns.
+        // Reject that still-pending effect if cancellation wins the race.
+        // Once the selection has changed, retain that selected target in both VMs so retry
+        // cannot silently play the old line while the episode panel highlights the new one.
+        cancelledAutomaticTarget = if (notice.isConnecting) {
+            playbackSelection?.curringPlayState?.value ?: automaticLineTarget ?: cartoonPlayingState
+        } else {
+            cartoonPlayingState
+        }
+        cartoonPlayingState = cancelledAutomaticTarget
+        automaticLineFallback.cancel()
+        automaticLineSwitchJob?.cancel()
+        automaticLineSwitchJob = null
+        automaticLineTarget = null
+        lastJob?.cancel()
+        playerController.pause()
+        _autoLineSwitch.value = null
+        _playingState.value = (automaticLineFailure ?: PlayingState()).copy(
+            isLoading = false,
+            isPlaying = false,
+            isError = true,
+            errorMsg = "已取消自动切换线路，可重试或手动选择线路",
+            errorThrowable = null,
+        )
+    }
+
+    /** A timer expiry also cancels parsing so a late resolver cannot start playback again. */
+    fun pauseForSleepTimer() {
+        val wasResolving = _playingState.value.isLoading
+        cancelAutomaticLineSwitch()
+        automaticLineSwitchJob?.cancel()
+        lastJob?.cancel()
+        playerController.pause()
+        if (wasResolving) {
+            _playingState.update {
+                it.copy(
+                    isLoading = false,
+                    isPlaying = false,
+                    isError = true,
+                    errorMsg = "睡眠定时已暂停播放，点击重试继续",
+                    errorThrowable = null,
+                )
+            }
+        }
+    }
+
+    private fun resetAutomaticLineFallback(restoreError: Boolean = false) {
+        if (restoreError && _autoLineSwitch.value != null) {
+            cancelAutomaticLineSwitch()
+        }
+        automaticLineSwitchJob?.cancel()
+        automaticLineSwitchJob = null
+        automaticLineTarget = null
+        automaticLineFailure = null
+        cancelledAutomaticTarget = null
+        _autoLineSwitch.value = null
+        automaticLineFallback.reset()
+    }
+
+    private fun tryAutomaticLineFallback(
+        failed: CartoonPlayViewModel.CartoonPlayState,
+        positionMs: Long,
+    ): Boolean {
+        if (sleepTimer.state.value.stoppedByTimer) return false
+        if (failed.cartoonSummary.source == LocalSource.LOCAL_SOURCE_KEY || _isPlayingLocal.value) return false
+        if (cartoonPlayingState != failed) return false
+        val selection = playbackSelection ?: return false
+        val next = automaticLineFallback.next(
+            failed.playLine.playLine.id,
+            failed.episode,
+            selection.automaticFallbackLines(failed),
+        ) ?: run {
+            _autoLineSwitch.value = null
+            return false
+        }
+        historyResumeController.clear()
+        val failure = _playingState.value
+        automaticLineFailure = failure
+        val notice = AutoLineSwitchNotice(
+            lineLabel = next.line.playLine.label.ifBlank { "其他线路" },
+            attempt = next.attempt,
+        )
+        _autoLineSwitch.value = notice
+        _playingState.update { it.copy(isLoading = true, isPlaying = false, isError = false) }
+        automaticLineSwitchJob?.cancel()
+        automaticLineSwitchJob = scope.launch {
+            // Let the user cancel before changing the selection or making another network request.
+            delay(2_000L)
+            if (cartoonPlayingState != failed || selection.curringPlayState.value != failed) return@launch
+            lastJob?.cancel()
+            val nextState = failed.copy(playLine = next.line, episode = next.episode)
+            automaticLineTarget = nextState
+            _autoLineSwitch.value = notice.copy(isConnecting = true)
+            if (!selection.selectAutomaticFallback(failed, nextState, positionMs.coerceAtLeast(0L))) {
+                resetAutomaticLineFallback(restoreError = true)
+            }
+        }
+        return true
+    }
 
     // 播放状态 =================================================
+    // isLoading 只表示"正在解析片源"：全屏加载页仅覆盖该阶段；
+    // 起播连接与播放中的缓冲统一由 ControlViewModel.isLoading 驱动画面中央转圈，
+    // 不阻塞控制层、手势与切集操作。两个播放引擎（Exo / mpv）行为一致。
     data class PlayingState(
         val isLoading: Boolean = true,
         val isPlaying: Boolean = false,
@@ -109,6 +424,33 @@ class CartoonPlayingViewModel(
         val errorThrowable: Throwable? = null
     )
 
+    private data class ResolvedPlayback(
+        val summary: CartoonSummary,
+        val playLine: PlayLine,
+        val episode: Episode,
+        val playerInfo: PlayerInfo,
+        val canMediaCache: Boolean,
+        val sourceResultIsCache: Boolean,
+    ) {
+        fun matches(state: CartoonPlayViewModel.CartoonPlayState): Boolean =
+            summary == state.cartoonSummary &&
+                playLine == state.playLine.playLine &&
+                episode == state.episode
+    }
+
+    private data class ResolvedLocal(
+        val summary: CartoonSummary,
+        val playLine: PlayLine,
+        val episode: Episode,
+        val uri: String,
+        val displayName: String,
+    ) {
+        fun matches(state: CartoonPlayViewModel.CartoonPlayState): Boolean =
+            summary == state.cartoonSummary &&
+                playLine == state.playLine.playLine &&
+                episode == state.episode
+    }
+
     private val _playingState = MutableStateFlow<PlayingState>(PlayingState())
     val playingState = _playingState.asStateFlow()
 
@@ -116,6 +458,10 @@ class CartoonPlayingViewModel(
     private val dispatcher = CoroutineProvider.newSingleDispatcher
     private val singleScope = CoroutineScope(SupervisorJob() + dispatcher)
     private val scope = MainScope()
+    val sleepTimer = PlayerSleepTimer(
+        scope = viewModelScope,
+        onTimerElapsed = ::pauseForSleepTimer,
+    )
 
     // 任务管理 =================================================
     // 加载任务
@@ -125,10 +471,43 @@ class CartoonPlayingViewModel(
     private var thumbnailJob: Job? = null
 
     // 其他模块注入 =================================================
-    private val cartoonInfoDao: CartoonInfoDao by Inject.injectLazy()
+    private val cartoonRepository: CartoonRepository by Inject.injectLazy()
     private val cartoonMediaSourceFactory: CartoonMediaSourceFactory by Inject.injectLazy()
     private val sourceStateCase: SourceStateCase by Inject.injectLazy()
-    private val settingPreferences: SettingPreferences by Inject.injectLazy()
+    private val boundMediaCase: BoundMediaCase by Inject.injectLazy()
+    init {
+        playerController.addListener(object : EasyPlayerController.Listener {
+            override fun onPlaybackStateChanged(state: EasyPlaybackState) {
+                when (state) {
+                    // 缓冲（起播、seek、卡顿）只呈现画面中央转圈，不再把 App 层
+                    // isLoading 置真，避免整个播放器被加载页阻塞。
+                    EasyPlaybackState.BUFFERING -> Unit
+                    EasyPlaybackState.READY -> {
+                        showHistoryResumeIfReady()
+                        duringTemp = playerController.duration
+                        _autoLineSwitch.value = null
+                        automaticLineFailure = null
+                        _playingState.update {
+                            it.copy(isLoading = false, isPlaying = true, isError = false)
+                        }
+                    }
+                    EasyPlaybackState.ENDED -> {
+                        trySaveHistory(
+                            positionMs = playerController.duration,
+                            durationMs = playerController.duration,
+                        )
+                        _playingState.update { it.copy(isLoading = false, isPlaying = false) }
+                    }
+                    EasyPlaybackState.IDLE -> Unit
+                }
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean) {
+                if (playWhenReady) sleepTimer.onPlaybackStarted()
+                if (!playWhenReady && playerController.hasMedia) trySaveHistory()
+            }
+        })
+    }
 
     // 各种配置（找机会拆单独一个 ViewModel 和播放无关 =================================================
     private val customSpeedPref = settingPreferences.customSpeed
@@ -139,6 +518,25 @@ class CartoonPlayingViewModel(
     val videoScaleTypeSelection = settingPreferences.scaleTypeSelection
     private val videoScaleTypePref = settingPreferences.videoScaleType
     val videoScaleType = videoScaleTypePref.stateIn(viewModelScope)
+    // Normal artifacts keep only inert compatibility state so an Anime4K installation can still
+    // read the same preference schema after an in-place upgrade/downgrade. They do not subscribe
+    // to or mutate the mpv preferences at runtime.
+    val mpvAnime4kEnabled: StateFlow<Boolean> = if (BuildConfig.HAS_MPV) {
+        settingPreferences.mpvAnime4kEnabled.stateIn(viewModelScope)
+    } else {
+        MutableStateFlow(false)
+    }
+    val mpvAnime4kPreset: StateFlow<SettingPreferences.MpvAnime4KPreset> =
+        if (BuildConfig.HAS_MPV) {
+            settingPreferences.mpvAnime4kPreset.stateIn(viewModelScope)
+        } else {
+            MutableStateFlow(SettingPreferences.MpvAnime4KPreset.FAST)
+        }
+    val exoAdAudioProbeEnabled = settingPreferences.exoAdAudioProbeEnabled.stateIn(viewModelScope)
+    val exoAdAudioProbeRulesUrl = settingPreferences.exoAdAudioProbeRulesUrl.stateIn(viewModelScope)
+    private val disabledAnime4KStatus = MutableStateFlow(MpvAnime4KStatus())
+    val mpvAnime4KStatus: StateFlow<MpvAnime4KStatus> =
+        mpvPlayerController?.anime4KStatus ?: disabledAnime4KStatus
 
     val isCustomSpeedDialog = mutableStateOf(false)
 
@@ -152,6 +550,12 @@ class CartoonPlayingViewModel(
 
     val playerSeekFullWidthTimeMS =
         settingPreferences.playerSeekFullWidthTimeMS.stateIn(viewModelScope)
+    val fullscreenControlPosition =
+        settingPreferences.fullscreenControlPosition.stateIn(viewModelScope)
+    val playerCutoutAvoidanceMode =
+        settingPreferences.playerCutoutAvoidanceMode.stateIn(viewModelScope)
+    val playerCutoutManualPaddingDp =
+        settingPreferences.playerCutoutManualPaddingDp.stateIn(viewModelScope)
 
     val defaultSpeed = settingPreferences.defaultSpeed.stateIn(viewModelScope)
 
@@ -160,47 +564,30 @@ class CartoonPlayingViewModel(
 
     // 缩略图缓存
     var thumbnailBuffer: ThumbnailBuffer? = null
-    val thumbnailFolder: File = File(APP.getCachePath("thumbnail")).apply {
-        deleteRecursively()
-        mkdirs()
+    val thumbnailFolder: File = File(APP.getCachePath("thumbnail")).apply { mkdirs() }
+
+    init {
+        // 清理上次遗留的缩略图缓存；deleteRecursively 是进入播放页的主线程热点，移到 IO。
+        clearThumbnailFolderAsync()
     }
 
-    val imageCache: File = File(APP.getCachePath("image")).apply {
-        deleteRecursively()
-        mkdirs()
-    }
-
-    fun image() {
-        val playerInfo = playingInfo
-        if (playerInfo == null) {
-            stringRes(com.heyanle.easy_i18n.R.string.waiting_parsing)
-            return
-        }
-        val position = exoPlayer.currentPosition
-        scope.launch(dispatcher) {
-            val bmp = easyTextRenderer.getTextureViewOrNull()?.bitmap ?: return@launch
-            val file = File(imageCache, "${position}.png")
-            file.delete()
-            file.createNewFile()
-            bmp.compress(
-                Bitmap.CompressFormat.PNG,
-                100,
-                file.outputStream()
-            )
-            MediaAndroidUtils.saveToDownload(
-                file,
-                type = "image",
-                "image_${position}.png"
-            )
-            scope.launch {
-                stringRes(com.heyanle.easy_i18n.R.string.image_save_completely).toast()
-            }
-
+    /** 在 IO 线程清理缩略图目录。缩略图缓存本质 best-effort，删除与新建并发安全（见 ThumbnailBuffer）。 */
+    private fun clearThumbnailFolderAsync() {
+        singleScope.launch(Dispatchers.IO) {
+            runCatching { thumbnailFolder.deleteRecursively() }
+            thumbnailFolder.mkdirs()
         }
     }
 
     @OptIn(UnstableApi::class)
     fun showRecord() {
+        if (isMpvEngine) {
+            "mpv 引擎暂不支持截图与录制".moeSnackBar()
+            return
+        }
+        if (showRecording.value != null) {
+            return
+        }
         val playerInfo = playingInfo
         if (playerInfo == null) {
             stringRes(com.heyanle.easy_i18n.R.string.waiting_parsing)
@@ -246,16 +633,118 @@ class CartoonPlayingViewModel(
         videoScaleTypePref.set(scaleType)
     }
 
+    fun setMpvAnime4kEnabled(enabled: Boolean) {
+        if (!BuildConfig.HAS_MPV) return
+        settingPreferences.mpvAnime4kEnabled.set(enabled)
+        mpvPlayerController?.applyAnime4K()
+    }
+
+    fun setMpvAnime4kPreset(preset: SettingPreferences.MpvAnime4KPreset) {
+        if (!BuildConfig.HAS_MPV) return
+        settingPreferences.mpvAnime4kPreset.set(preset)
+        mpvPlayerController?.applyAnime4K()
+    }
+
+    fun setExoAdAudioProbeEnabled(enabled: Boolean) {
+        settingPreferences.exoAdAudioProbeEnabled.set(enabled)
+        exoAdAudioProbeController?.refreshConfiguration()
+    }
+
+    fun setExoAdAudioProbeRulesUrl(url: String) {
+        settingPreferences.exoAdAudioProbeRulesUrl.set(url.trim())
+        exoAdAudioProbeController?.refreshConfiguration()
+    }
+
     // 刷新 & 播放 ===================================
 
     fun tryRefresh() {
+        val target = playbackSelection?.curringPlayState?.value ?: cartoonPlayingState ?: return
+        retryPlaybackTarget(target)
+    }
+
+    private fun retryPlaybackTarget(target: CartoonPlayViewModel.CartoonPlayState) {
+        sleepTimer.onPlaybackStarted()
+        historyResumeController.clear()
+        resetAutomaticLineFallback()
+        forceNoCacheRetrying = false
+        forceClearMediaCacheRetrying = false
         lastJob?.cancel()
+        cartoonPlayingState = target
         lastJob = scope.launch {
-            cartoonPlayingState?.let {
-                innerPlay(it, 0)
-            }
+            innerPlay(target, 0)
         }
 
+    }
+
+    // 播放变体（本地/云端）管理 =====================================
+
+    /** 路由入参初始化播放变体偏好；仅在会话尚未有手动选择时生效。 */
+    fun initPlaybackVariantPreference(preferLocal: Boolean?) {
+        if (sessionPreferLocal == null) {
+            sessionPreferLocal = preferLocal
+        }
+    }
+
+    /** 当前集的本地代播媒体（供 UI 与外部播放使用）；无绑定或文件缺失时为 null。 */
+    suspend fun currentLocalMedia(): BoundMedia? {
+        val state = cartoonPlayingState ?: return null
+        return runCatching {
+            boundMediaCase.findLocalMedia(
+                state.cartoonSummary,
+                state.playLine.playLine.id,
+                state.episode,
+            )
+        }.getOrNull()
+    }
+
+    /**
+     * 在本地/云端之间切换当前集播放并保持当前进度。
+     * 换绑到另一个本地文件时用 [forceReload] 重新装载，避免继续播放旧绑定。
+     */
+    fun switchPlaybackVariant(toLocal: Boolean, forceReload: Boolean = false) {
+        val state = cartoonPlayingState ?: return
+        if (!forceReload && _isPlayingLocal.value == toLocal) return
+        resetAutomaticLineFallback()
+        val position = if (playerController.hasMedia) playerController.currentPosition else -1L
+        sessionPreferLocal = toLocal
+        lastJob?.cancel()
+        changePlay(state, position)
+    }
+
+    /** 清除云端解析缓存并强制绕过源缓存重新解析；正在本地播放时不打断播放。 */
+    fun reResolveCloud() {
+        resetAutomaticLineFallback()
+        resolvedPlayback = null
+        if (_isPlayingLocal.value) return
+        val state = cartoonPlayingState ?: return
+        sessionPreferLocal = false
+        val position = if (playerController.hasMedia) playerController.currentPosition else -1L
+        lastJob?.cancel()
+        lastJob = scope.launch {
+            innerPlay(
+                cartoonPlayingState = state,
+                adviceProcess = position,
+                canCache = false,
+            )
+        }
+    }
+
+    /** 绑定变更（换绑/解绑）后使本地槽失效；正在本地播放时保留当前媒体。 */
+    fun invalidateLocalVariant() {
+        resolvedLocal = null
+    }
+
+    /** 用本地文件调用外部播放器；无绑定或文件缺失时忽略。 */
+    fun playLocalExternal() {
+        scope.launch {
+            val bound = currentLocalMedia() ?: return@launch
+            innerPlayExternal(
+                PlayerInfo(
+                    decodeType = PlayerInfo.DECODE_TYPE_OTHER,
+                    uri = bound.uri,
+                )
+            )
+        }
     }
 
     private fun tryRefreshNoCache() {
@@ -264,7 +753,7 @@ class CartoonPlayingViewModel(
         lastJob?.cancel()
         lastJob = scope.launch {
             cartoonPlayingState?.let {
-                innerPlay(it, exoPlayer.currentPosition.coerceAtLeast(0L), canCache = false)
+                innerPlay(it, playerController.currentPosition, canCache = false)
             }
         }
     }
@@ -272,10 +761,38 @@ class CartoonPlayingViewModel(
     fun changePlay(
         cartoonPlayingState: CartoonPlayViewModel.CartoonPlayState?,
         adviceProcess: Long,
+        historyResume: Boolean = false,
     ) {
+        if (cartoonPlayingState != null && cartoonPlayingState == cancelledAutomaticTarget) return
+        val previousRequestedState = this.cartoonPlayingState
+        val sameRequestedTarget = cartoonPlayingState != null && previousRequestedState != null &&
+            isSamePlaybackTarget(
+                previousSummary = previousRequestedState.cartoonSummary,
+                previousPlayLine = previousRequestedState.playLine.playLine,
+                previousEpisode = previousRequestedState.episode,
+                nextSummary = cartoonPlayingState.cartoonSummary,
+                nextPlayLine = cartoonPlayingState.playLine.playLine,
+                nextEpisode = cartoonPlayingState.episode,
+            )
+        if (sameRequestedTarget && lastJob?.isActive == true) {
+            val duplicateTarget = checkNotNull(cartoonPlayingState)
+            "play-target action=ignore-duplicate-active source=${duplicateTarget.cartoonSummary.source} cartoonId=${duplicateTarget.cartoonSummary.id} lineId=${duplicateTarget.playLine.playLine.id} episodeId=${duplicateTarget.episode.id}".logi(TAG)
+            return
+        }
+        if (automaticLineTarget == cartoonPlayingState && cartoonPlayingState != null) {
+            automaticLineTarget = null
+        } else if (!sameRequestedTarget) {
+            resetAutomaticLineFallback()
+        }
+        if (!sameRequestedTarget) {
+            forceNoCacheRetrying = false
+            forceClearMediaCacheRetrying = false
+        }
+        if (historyResume) historyResumeController.prepare(adviceProcess)
+        else if (this.cartoonPlayingState != cartoonPlayingState) historyResumeController.clear()
         lastJob?.cancel()
         lastJob = scope.launch {
-            val previousSummary = this@CartoonPlayingViewModel.cartoonPlayingState?.cartoonSummary
+            val previousSummary = previousRequestedState?.cartoonSummary
             val previousPlayerUri = playingInfo?.uri
             this@CartoonPlayingViewModel.cartoonPlayingState = cartoonPlayingState
             if (cartoonPlayingState == null) {
@@ -287,24 +804,74 @@ class CartoonPlayingViewModel(
                     )
                 }
             } else {
-                val sameTarget = isSamePlaybackTarget(
-                    previousSummary = previousSummary,
-                    previousPlayLine = playingPlayLine,
-                    previousEpisode = playingEpisode,
-                    nextSummary = cartoonPlayingState.cartoonSummary,
-                    nextPlayLine = cartoonPlayingState.playLine.playLine,
-                    nextEpisode = cartoonPlayingState.episode,
+                val resumeDirective = playbackResumeCheckpoint.consume(
+                    summary = cartoonPlayingState.cartoonSummary,
+                    playLine = cartoonPlayingState.playLine.playLine,
+                    episode = cartoonPlayingState.episode,
+                    explicitPositionMs = adviceProcess,
                 )
-                "play-target previousSource=${previousSummary?.source} previousId=${previousSummary?.id} previousUri=$previousPlayerUri nextSource=${cartoonPlayingState.cartoonSummary.source} nextId=${cartoonPlayingState.cartoonSummary.id} lineId=${cartoonPlayingState.playLine.playLine.id} episodeId=${cartoonPlayingState.episode.id} sameTarget=$sameTarget vm=${System.identityHashCode(this@CartoonPlayingViewModel)}".logi(TAG)
-                if (sameTarget
-                    && _playingState.first().isPlaying
-                    && exoPlayer.isMedia()
-                ) {
-                    if (adviceProcess >= 0) {
-                        exoPlayer.seekTo(adviceProcess)
+                val resolved = resolvedPlayback?.takeIf { it.matches(cartoonPlayingState) }
+                val local = resolvedLocal?.takeIf { it.matches(cartoonPlayingState) }
+                // 明确选择本地但尚未解析本地绑定时，也必须进入 RESOLVE_SOURCE，
+                // 让 innerPlay 查询刚刚写入的绑定，不能继续沿用云端播放器。
+                val wantLocal = shouldUseLocalVariant(sessionPreferLocal, local != null)
+                // 变体（本地/云端）与播放器现有媒体不一致时必须重新装载，不能 KEEP_PLAYER
+                val playerMatchesVariant = _isPlayingLocal.value == wantLocal
+                val action = continuationAction(
+                    hasResolvedTarget = if (wantLocal) local != null else resolved != null,
+                    playerHasMedia = playerController.hasMedia && playerMatchesVariant,
+                )
+                "play-target previousSource=${previousSummary?.source} previousId=${previousSummary?.id} previousUri=$previousPlayerUri nextSource=${cartoonPlayingState.cartoonSummary.source} nextId=${cartoonPlayingState.cartoonSummary.id} lineId=${cartoonPlayingState.playLine.playLine.id} episodeId=${cartoonPlayingState.episode.id} action=$action wantLocal=$wantLocal vm=${System.identityHashCode(this@CartoonPlayingViewModel)}".logi(TAG)
+                when (action) {
+                    ContinuationAction.KEEP_PLAYER -> {
+                        if (resumeDirective.positionMs >= 0) {
+                            playerController.seekTo(resumeDirective.positionMs)
+                        }
+                        playerController.playWhenReady = resumeDirective.playWhenReady
+                        if (playerController.playbackState == EasyPlaybackState.READY) showHistoryResumeIfReady()
+                        _playingState.update {
+                            it.copy(
+                                isLoading = false,
+                                isPlaying = true,
+                                isError = false,
+                            )
+                        }
                     }
-                } else {
-                    innerPlay(cartoonPlayingState, adviceProcess)
+                    ContinuationAction.LOAD_RESOLVED_MEDIA -> {
+                        if (wantLocal) {
+                            val cachedLocal = checkNotNull(local)
+                            "play-media action=restore-local uri=${cachedLocal.uri} source=${cachedLocal.summary.source} cartoonId=${cachedLocal.summary.id}".logi(TAG)
+                            playingPlayLine = cachedLocal.playLine
+                            playingEpisode = cachedLocal.episode
+                            playingInfoIsCache = false
+                            _isPlayingLocal.value = true
+                            innerPlay(
+                                playerInfo = PlayerInfo(
+                                    decodeType = PlayerInfo.DECODE_TYPE_OTHER,
+                                    uri = cachedLocal.uri,
+                                ),
+                                adviceProcess = resumeDirective.positionMs,
+                                canMediaCache = false,
+                                playWhenReady = resumeDirective.playWhenReady,
+                            )
+                        } else {
+                            val cached = checkNotNull(resolved)
+                            "play-media action=restore-resolved uri=${cached.playerInfo.uri} source=${cached.summary.source} cartoonId=${cached.summary.id}".logi(TAG)
+                            playingInfoIsCache = cached.sourceResultIsCache
+                            _isPlayingLocal.value = false
+                            innerPlay(
+                                playerInfo = cached.playerInfo,
+                                adviceProcess = resumeDirective.positionMs,
+                                canMediaCache = cached.canMediaCache,
+                                playWhenReady = resumeDirective.playWhenReady,
+                            )
+                        }
+                    }
+                    ContinuationAction.RESOLVE_SOURCE -> innerPlay(
+                        cartoonPlayingState = cartoonPlayingState,
+                        adviceProcess = resumeDirective.positionMs,
+                        playWhenReady = resumeDirective.playWhenReady,
+                    )
                 }
             }
         }
@@ -323,6 +890,12 @@ class CartoonPlayingViewModel(
             return true
         }
         return false
+    }
+
+    fun hasCustomPlaybackHeaders(): Boolean = playingInfo?.header?.isNotEmpty() == true
+
+    fun playbackDiagnostic(): PlaybackDiagnostic? = playingInfo?.let {
+        PlaybackDiagnostic(it.uri, it.header.orEmpty())
     }
 
     /**
@@ -373,17 +946,56 @@ class CartoonPlayingViewModel(
         cartoonPlayingState: CartoonPlayViewModel.CartoonPlayState,
         adviceProcess: Long,
         canCache: Boolean = true,
+        playWhenReady: Boolean = true,
     ) {
+        currentCoroutineContext().ensureActive()
 
+        // 本地代播拦截：有可用绑定且偏好本地时，直接播放本地文件，不解析源。
+        // 播放目标身份保持为远程番剧/线路/剧集，历史与续播进度因此天然统一。
+        if (sessionPreferLocal != false) {
+            val bound = runCatching {
+                boundMediaCase.findLocalMedia(
+                    cartoonPlayingState.cartoonSummary,
+                    cartoonPlayingState.playLine.playLine.id,
+                    cartoonPlayingState.episode,
+                )
+            }.getOrNull()
+            currentCoroutineContext().ensureActive()
+            if (bound != null) {
+                resolvedLocal = ResolvedLocal(
+                    summary = cartoonPlayingState.cartoonSummary,
+                    playLine = cartoonPlayingState.playLine.playLine,
+                    episode = cartoonPlayingState.episode,
+                    uri = bound.uri,
+                    displayName = bound.displayName,
+                )
+                playingPlayLine = cartoonPlayingState.playLine.playLine
+                playingEpisode = cartoonPlayingState.episode
+                playingInfoIsCache = false
+                _isPlayingLocal.value = true
+                innerPlay(
+                    playerInfo = PlayerInfo(
+                        decodeType = PlayerInfo.DECODE_TYPE_OTHER,
+                        uri = bound.uri,
+                    ),
+                    adviceProcess = adviceProcess,
+                    canMediaCache = false,
+                    playWhenReady = playWhenReady,
+                )
+                return
+            }
+        }
 
-        exoPlayer.pause()
+        currentCoroutineContext().ensureActive()
+        _isPlayingLocal.value = false
+        playerController.pause()
         _playingState.update {
-            it.copy(
-                isLoading = true,
-            )
+            it.copy(isLoading = true)
         }
         val play = sourceStateCase.awaitBundle().play(cartoonPlayingState.cartoonSummary.source)
         if (play == null) {
+            _autoLineSwitch.value = null
+            automaticLineFailure = null
             _playingState.update {
                 it.copy(
                     isLoading = false,
@@ -449,8 +1061,21 @@ class CartoonPlayingViewModel(
                 playingPlayLine = cartoonPlayingState.playLine.playLine
                 playingEpisode = cartoonPlayingState.episode
                 playingInfoIsCache = it.isCache
-                forceNoCacheRetrying = false
-                innerPlay(it.data, adviceProcess, canMediaCache = canCache)
+                resolvedPlayback = ResolvedPlayback(
+                    summary = cartoonPlayingState.cartoonSummary,
+                    playLine = cartoonPlayingState.playLine.playLine,
+                    episode = cartoonPlayingState.episode,
+                    playerInfo = it.data,
+                    canMediaCache = canCache,
+                    sourceResultIsCache = it.isCache,
+                )
+                _isPlayingLocal.value = false
+                innerPlay(
+                    playerInfo = it.data,
+                    adviceProcess = adviceProcess,
+                    canMediaCache = canCache,
+                    playWhenReady = playWhenReady,
+                )
             }
             .error { state ->
                 yield()
@@ -462,6 +1087,34 @@ class CartoonPlayingViewModel(
                         errorThrowable = state.throwable
                     )
                 }
+                // A verification request is actionable only through the existing manual flow.
+                if (AutomaticLineFallback.requiresManualVerification(state.throwable)) {
+                    _autoLineSwitch.value = null
+                    return@error
+                }
+                // 解析失败兜底：本集有本地绑定时提供一键切换本地播放
+                if (sessionPreferLocal != true && !_isPlayingLocal.value) {
+                    val bound = runCatching {
+                        boundMediaCase.findLocalMedia(
+                            cartoonPlayingState.cartoonSummary,
+                            cartoonPlayingState.playLine.playLine.id,
+                            cartoonPlayingState.episode,
+                        )
+                    }.getOrNull()
+                    currentCoroutineContext().ensureActive()
+                    if (bound != null) {
+                        _autoLineSwitch.value = null
+                        automaticLineFailure = null
+                        stringRes(com.heyanle.easy_i18n.R.string.play_with_local_file).moeSnackBar(
+                            confirmLabel = stringRes(com.heyanle.easy_i18n.R.string.switch_to_play_source_local),
+                            onConfirm = {
+                                switchPlaybackVariant(toLocal = true)
+                            }
+                        )
+                        return@error
+                    }
+                }
+                tryAutomaticLineFallback(cartoonPlayingState, adviceProcess)
             }
 
 
@@ -497,8 +1150,10 @@ class CartoonPlayingViewModel(
         playerInfo: PlayerInfo,
         adviceProcess: Long,
         canMediaCache: Boolean = true,
+        playWhenReady: Boolean = true,
     ) {
-        exoPlayer.pause()
+        currentCoroutineContext().ensureActive()
+        playerController.pause()
         if (lastJob?.isCancelled != false || lastJob?.isActive != true) {
             return
         }
@@ -506,14 +1161,14 @@ class CartoonPlayingViewModel(
             if (
                 playingInfo?.uri == playerInfo.uri
                 && playingInfo?.decodeType == playerInfo.decodeType
-                && exoPlayer.isMedia()
+                && playerController.hasMedia
             ) {
                 "play-media action=reuse uri=${playerInfo.uri} source=${cartoonPlayingState?.cartoonSummary?.source} cartoonId=${cartoonPlayingState?.cartoonSummary?.id}".logi(TAG)
                 playingInfo = playerInfo
                 if (adviceProcess >= 0) {
-                    exoPlayer.seekTo(adviceProcess)
+                    playerController.seekTo(adviceProcess)
                 }
-                exoPlayer.playWhenReady = true
+                playerController.playWhenReady = playWhenReady
                 _playingState.update {
                     it.copy(
                         isLoading = false,
@@ -525,10 +1180,46 @@ class CartoonPlayingViewModel(
             }
         }
         thumbnailBuffer?.clear()
-        thumbnailFolder.deleteRecursively()
+        clearThumbnailFolderAsync()
         thumbnailBuffer = ThumbnailBuffer(thumbnailFolder)
         playingInfo = playerInfo
         "play-media action=set uri=${playerInfo.uri} source=${cartoonPlayingState?.cartoonSummary?.source} cartoonId=${cartoonPlayingState?.cartoonSummary?.id} cache=$canMediaCache".logi(TAG)
+        if (isMpvEngine) {
+            playingInfoIsCache = false
+            mpvPlayerController?.load(
+                uri = playerInfo.uri,
+                headers = playerInfo.header.orEmpty(),
+                startPositionMs = adviceProcess.coerceAtLeast(0L),
+                playWhenReady = playWhenReady,
+            )
+            // mpv 的连接阶段同样只呈现中央转圈，与 Exo 保持一致；
+            // isPlaying 与 Exo 相同乐观置真，保证顶栏工具在连接期可见。
+            _playingState.update {
+                it.copy(
+                    isLoading = false,
+                    isPlaying = true,
+                    isError = false,
+                )
+            }
+            return
+        }
+        // Media3 效果管线（VideoGraph）要求 codec 初始化前有有效输出 surface，
+        // 否则 renderer 退回 placeholder surface，EGL 渲染报
+        // "Make sure the SurfaceView or associated SurfaceHolder has a valid Surface"。
+        // 播放前等待渲染视图 surface 就绪（最多 5s）。
+        withTimeoutOrNull(5000) {
+            while (true) {
+                val v = render.getViewOrNull()
+                val ready = when (v) {
+                    is android.view.SurfaceView -> v.holder?.surface?.isValid == true
+                    is android.view.TextureView -> v.isAvailable
+                    else -> false
+                }
+                if (ready) break
+                delay(50)
+            }
+        }
+        currentCoroutineContext().ensureActive()
         // 本地番源不过缓存
         val media =
             if (!canMediaCache || cartoonPlayingState?.cartoonSummary?.source?.equals(LocalSource.LOCAL_SOURCE_KEY) == true)
@@ -537,7 +1228,11 @@ class CartoonPlayingViewModel(
         exoPlayer.setMediaSource(media, adviceProcess)
         exoPlayer.prepare()
         duringTemp = -1L
-        exoPlayer.playWhenReady = true
+        exoPlayer.playWhenReady = playWhenReady
+        exoAdAudioProbeController?.open(
+            playerInfo = playerInfo,
+            mediaId = currentProbeMediaId(),
+        )
         _playingState.update {
             it.copy(
                 isLoading = false,
@@ -547,47 +1242,50 @@ class CartoonPlayingViewModel(
         }
     }
     var duringTemp = -1L
-    fun trySaveHistory(ps: Long = -1) {
-
-        "save1".logi(TAG)
+    fun trySaveHistory(
+        positionMs: Long = -1L,
+        durationMs: Long = -1L,
+    ) {
+        if (settingPreferences.isInPrivate.get()) return
         val line = playingPlayLine ?: return
         val epi = playingEpisode ?: return
         val cartoon = cartoonPlayingState?.cartoonSummary ?: return
+        val playbackState = playerController.playbackState
+        val controllerPosition = playerController.currentPosition
+        val controllerDuration = playerController.duration
+        val positionSnapshot = when {
+            positionMs >= 0L -> positionMs
+            playbackState == EasyPlaybackState.BUFFERING ||
+                playbackState == EasyPlaybackState.READY -> controllerPosition
+            playbackState == EasyPlaybackState.ENDED -> {
+                controllerDuration.takeIf { it > 0L }
+                    ?: duringTemp.takeIf { it > 0L }
+                    ?: return
+            }
+            else -> return
+        }
+        val durationSnapshot = sequenceOf(durationMs, controllerDuration, duringTemp)
+            .firstOrNull { it > 0L }
+            ?: 0L
+        val normalizedPosition = if (durationSnapshot > 0L) {
+            positionSnapshot.coerceIn(0L, durationSnapshot)
+        } else {
+            positionSnapshot.coerceAtLeast(0L)
+        }
         CoroutineProvider.globalMainScope.launch {
-
             runCatching {
-                var po = if (ps >= 0) ps else exoPlayer.currentPosition
-                when (exoPlayer.playbackState) {
-                    Player.STATE_BUFFERING, Player.STATE_READY -> {
-                        po = exoPlayer.currentPosition
-                    }
-                    Player.STATE_ENDED -> {
-                        if (duringTemp > 0) {
-                            po = duringTemp
-                        } else {
-                            return@launch
-                        }
-                    }
-                }
-                "save $po".logi(TAG)
-//            if (exoPlayer.playbackState == ExoPlayer.STATE_ENDED)
-                val process = po
-                cartoonInfoDao.transaction {
-                    val old = cartoonInfoDao.getByCartoonSummary(cartoon.id, cartoon.source)
-                    if (old != null) {
-                        val lineIndex = old.playLine.indexOf(line)
-                        if (lineIndex >= 0) {
-                            cartoonInfoDao.modify(
-                                old.copyHistory(
-                                    lineIndex,
-                                    line,
-                                    epi,
-                                    process
-
-                                )
-                            )
-                        }
-
+                cartoonRepository.updateCartoonInfo(cartoon) { old ->
+                    val lineIndex = old.playLine.indexOf(line)
+                    if (lineIndex >= 0) {
+                        old.copyHistory(
+                            lineIndex,
+                            line,
+                            epi,
+                            normalizedPosition,
+                            durationSnapshot,
+                        )
+                    } else {
+                        old
                     }
                 }
             }
@@ -597,29 +1295,43 @@ class CartoonPlayingViewModel(
 
     // onDispose
     fun onExit() {
-        trySaveHistory()
+        historyResumeController.clear()
+        sleepTimer.clear()
+        resetAutomaticLineFallback(restoreError = true)
+        val exitPosition = playerController.currentPosition
+        val exitDuration = playerController.duration
+        playbackResumeCheckpoint.capture(
+            summary = cartoonPlayingState?.cartoonSummary,
+            playLine = playingPlayLine,
+            episode = playingEpisode,
+            positionMs = exitPosition,
+            playWhenReady = playerController.playWhenReady,
+        )
+        trySaveHistory(positionMs = exitPosition, durationMs = exitDuration)
         lastJob?.cancel()
-        exoPlayer.pause()
+        playerController.pause()
     }
 
     // exoPlayer 回调 ==================================================
 
     override fun onPlaybackStateChanged(playbackState: Int) {
-        super.onPlaybackStateChanged(playbackState)
+        super<Player.Listener>.onPlaybackStateChanged(playbackState)
         if (playbackState == Player.STATE_READY) {
             exoPlayer.duration.logi(TAG)
             duringTemp = exoPlayer.duration
             forceClearMediaCacheRetrying = false
         }
-        if (_playingState.value.isPlaying && !exoPlayer.playWhenReady && exoPlayer.isMedia()) {
-            trySaveHistory()
-        }
-
-
     }
 
     override fun onPlayerError(error: PlaybackException) {
-        super.onPlayerError(error)
+        super<Player.Listener>.onPlayerError(error)
+        if (sleepTimer.state.value.stoppedByTimer) {
+            playerController.pause()
+            _playingState.update { it.copy(isLoading = false, isPlaying = false, isError = true, errorMsg = "睡眠定时已暂停播放，点击重试继续", errorThrowable = null) }
+            return
+        }
+        // A player may report the same failure again while the user is deciding to cancel.
+        if (_autoLineSwitch.value?.isConnecting == false) return
         var cause: Throwable? = error
         var level = 0
         while (cause != null) {
@@ -627,10 +1339,23 @@ class CartoonPlayingViewModel(
             cause = cause.cause
             level++
         }
+        if (_isPlayingLocal.value) {
+            // 本地文件播放失败（被删除/损坏等），自动回退云端解析
+            _isPlayingLocal.value = false
+            resolvedLocal = null
+            sessionPreferLocal = false
+            val state = cartoonPlayingState
+            if (state != null) {
+                "本地文件播放失败，已自动回退在线播放".moeSnackBar()
+                lastJob?.cancel()
+                changePlay(state, playerController.currentPosition)
+                return
+            }
+        }
         if (error.hasReadPositionOutOfRangeCause() && tryClearMediaCacheAndRetry()) {
             return
         }
-        if (playingInfoIsCache) {
+        if (playingInfoIsCache && !forceNoCacheRetrying) {
             tryRefreshNoCache()
             return
         }
@@ -643,13 +1368,14 @@ class CartoonPlayingViewModel(
                 errorThrowable = error,
             )
         }
+        cartoonPlayingState?.let { tryAutomaticLineFallback(it, playerController.currentPosition) }
     }
 
     private fun tryClearMediaCacheAndRetry(): Boolean {
         if (forceClearMediaCacheRetrying) return false
         val playerInfo = playingInfo ?: return false
         forceClearMediaCacheRetrying = true
-        val position = exoPlayer.currentPosition.coerceAtLeast(0L)
+        val position = playerController.currentPosition
         lastJob?.cancel()
         lastJob = scope.launch {
             runCatching {
@@ -676,9 +1402,20 @@ class CartoonPlayingViewModel(
     }
 
     override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-        super.onPlayWhenReadyChanged(playWhenReady, reason)
-        if (_playingState.value.isPlaying && !exoPlayer.playWhenReady && exoPlayer.isMedia()) {
+        super<Player.Listener>.onPlayWhenReadyChanged(playWhenReady, reason)
+        if (_playingState.value.isPlaying && !playerController.playWhenReady && playerController.hasMedia) {
             trySaveHistory()
+        }
+    }
+
+    override fun onPositionDiscontinuity(
+        oldPosition: Player.PositionInfo,
+        newPosition: Player.PositionInfo,
+        reason: Int,
+    ) {
+        super<Player.Listener>.onPositionDiscontinuity(oldPosition, newPosition, reason)
+        if (reason != Player.DISCONTINUITY_REASON_INTERNAL) {
+            exoAdAudioProbeController?.notifyHostDiscontinuity()
         }
     }
 
@@ -687,7 +1424,10 @@ class CartoonPlayingViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        sleepTimer.clear()
         lastJob?.cancel()
+        playbackSelection?.onManualPlaybackSelection = null
+        playbackSelection?.onSameTargetPlaybackRetry = null
         try {
             trySaveHistory()
         }catch (e: Throwable) {
@@ -695,7 +1435,19 @@ class CartoonPlayingViewModel(
         }
 
         scope.cancel()
+        exoAdAudioProbeController?.close()
+        mpvPlayerController?.release()
         exoPlayer.release()
+    }
+
+    private fun currentProbeMediaId(): String {
+        val state = cartoonPlayingState ?: return "easybangumi-unknown"
+        return listOf(
+            state.cartoonSummary.source,
+            state.cartoonSummary.id,
+            state.playLine.playLine.id,
+            state.episode.id,
+        ).joinToString(":" )
     }
 
     // surfaceTexture 回调 ==============================================

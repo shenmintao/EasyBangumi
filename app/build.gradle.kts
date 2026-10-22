@@ -2,21 +2,19 @@
 import com.android.build.api.dsl.VariantDimension
 import com.heyanle.buildsrc.Android
 import com.heyanle.buildsrc.RoomSchemaArgProvider
+import java.net.URI
 import java.util.Properties
 
-val DEFAULT_RELEASE = false
-val release = isRelease()
-
-fun isRelease() = (System.getenv("RELEASE") ?: "") == "true"
+val baseApplicationId = "com.heyanle.easybangumi4"
+// Source acceptance must never reuse a developer's existing Debug data or database schema.
+val sourceAcceptanceBuild = providers.gradleProperty("sourceAcceptanceBuild").orNull == "true"
 
 plugins {
     alias(build.plugins.android.application)
     alias(build.plugins.kotlin.android)
+    alias(build.plugins.compose.compiler)
     alias(build.plugins.ksp)
-    if ((System.getenv("RELEASE") ?: "true") == "") {
-        id("com.google.gms.google-services")
-        id("com.google.firebase.crashlytics")
-    }
+    alias(build.plugins.baselineprofile)
 }
 
 
@@ -28,17 +26,78 @@ runCatching {
     // it.printStackTrace()
 }
 
+// Fork release signing: read the keystore from local.properties or CI environment variables.
 val localProps = Properties()
 runCatching {
     localProps.load(project.rootProject.file("local.properties").inputStream())
 }
 
-val packageName = if (release) "com.heyanle.easybangumi4" else "com.heyanle.easybangumi4.debug"
-val labelNameRes = if (release) "@string/app_name" else "纯纯看番 Debug"
+// Beta builds use a stable local certificate instead of Android's machine-specific debug key.
+// The whole publishing directory is gitignored, so neither the keystore nor its credentials can
+// be committed accidentally. A checkout without these files produces an unsigned Beta artifact
+// rather than silently signing with a different certificate.
+val betaSigningPropertiesFile = project.rootProject.file("publishing/beta-signing.properties")
+val betaSigningProperties = Properties().apply {
+    betaSigningPropertiesFile.takeIf(File::isFile)?.inputStream()?.use(::load)
+}
+val betaSigningStoreFile = betaSigningProperties.getProperty("storeFile")
+    ?.takeIf(String::isNotBlank)
+    ?.let(betaSigningPropertiesFile.parentFile::resolve)
+val hasBetaSigning = betaSigningStoreFile?.isFile == true &&
+    listOf("storePassword", "keyAlias", "keyPassword").all {
+        !betaSigningProperties.getProperty(it).isNullOrBlank()
+    }
+
+val danDanPlayProps = Properties()
+project.rootProject.file("dandanplay.properties")
+    .takeIf { it.isFile }
+    ?.inputStream()
+    ?.use(danDanPlayProps::load)
+
+val oneDriveProps = Properties()
+project.rootProject.file("onedrive.properties")
+    .takeIf { it.isFile }
+    ?.inputStream()
+    ?.use(oneDriveProps::load)
+
+fun danDanPlayCredential(property: String, environment: String): String {
+    return System.getenv(environment)
+        ?: providers.gradleProperty(property).orNull
+        ?: danDanPlayProps.getProperty(property)
+        ?: ""
+}
+
+fun buildConfigString(value: String): String {
+    return "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+}
+
+val danDanPlayAppId = danDanPlayCredential("dandanplay.appId", "DANDANPLAY_APP_ID")
+val danDanPlayAppSecret = danDanPlayCredential("dandanplay.appSecret", "DANDANPLAY_APP_SECRET")
+fun oneDriveCredential(property: String, environment: String): String =
+    System.getenv(environment)
+        ?: providers.gradleProperty(property).orNull
+        ?: oneDriveProps.getProperty(property)
+        ?: ""
+
+val oneDriveClientId = oneDriveCredential("onedrive.clientId", "ONEDRIVE_CLIENT_ID")
+val oneDriveRedirectUri = oneDriveCredential("onedrive.redirectUri", "ONEDRIVE_REDIRECT_URI")
+val oneDriveRedirect = runCatching { URI(oneDriveRedirectUri) }.getOrNull()
 
 android {
     namespace =  "com.heyanle.easybangumi4"
     compileSdk = Android.compileSdk
+    flavorDimensions += "playbackCapability"
+
+    val betaLocalSigningConfig = if (hasBetaSigning) {
+        signingConfigs.create("betaLocal") {
+            storeFile = betaSigningStoreFile
+            storePassword = betaSigningProperties.getProperty("storePassword")
+            keyAlias = betaSigningProperties.getProperty("keyAlias")
+            keyPassword = betaSigningProperties.getProperty("keyPassword")
+        }
+    } else {
+        null
+    }
 
     signingConfigs {
         create("release") {
@@ -51,7 +110,7 @@ android {
 
     defaultConfig {
 
-        applicationId = packageName
+        applicationId = baseApplicationId
         minSdk = Android.minSdk
         targetSdk = Android.targetSdk
         versionCode = Android.versionCode
@@ -67,9 +126,16 @@ android {
             publishingProps.getProperty("bugly_appid", System.getenv("BUGLY_APPID")?:"")
         manifestPlaceholders["bugly_app_version"] = Android.versionName
         manifestPlaceholders["bugly_app_channel"] = "github"
-        manifestPlaceholders["package_name"] = packageName
-        manifestPlaceholders["label_res"] = labelNameRes
-        manifestPlaceholders["is_release"] = release
+        manifestPlaceholders["label_res"] = "@string/app_name"
+        manifestPlaceholders["onedrive_redirect_scheme"] = oneDriveRedirect?.scheme ?: "msauth"
+        manifestPlaceholders["onedrive_redirect_host"] = oneDriveRedirect?.host ?: "$baseApplicationId.unconfigured"
+        // MSAL config uses the URL-encoded redirect URI, while Android's intent-filter path must
+        // contain the decoded Base64 signature (for example '+' and '=' instead of %2B/%3D).
+        manifestPlaceholders["onedrive_redirect_path"] = oneDriveRedirect?.path ?: "/unconfigured"
+        buildConfigField("String", "DANDANPLAY_APP_ID", buildConfigString(danDanPlayAppId))
+        buildConfigField("String", "DANDANPLAY_APP_SECRET", buildConfigString(danDanPlayAppSecret))
+        buildConfigField("String", "ONEDRIVE_CLIENT_ID", buildConfigString(oneDriveClientId))
+        buildConfigField("String", "ONEDRIVE_REDIRECT_URI", buildConfigString(oneDriveRedirectUri))
 
         // bugly 调试模式
         manifestPlaceholders["bugly_is_debug"] = false
@@ -79,6 +145,25 @@ android {
             arg(RoomSchemaArgProvider(File(projectDir, "schemas")))
         }
 
+    }
+
+    productFlavors {
+        create("normal") {
+            dimension = "playbackCapability"
+            // Primary package for modern 64-bit devices: mpv + Anime4K, arm64 only.
+            minSdk = 26
+            buildConfigField("boolean", "HAS_MPV", "true")
+            manifestPlaceholders["bugly_app_channel"] = "github-normal"
+            ndk {
+                abiFilters += setOf("arm64-v8a")
+            }
+        }
+        create("compat") {
+            dimension = "playbackCapability"
+            minSdk = Android.minSdk
+            buildConfigField("boolean", "HAS_MPV", "false")
+            manifestPlaceholders["bugly_app_channel"] = "github-compat"
+        }
     }
 
 //    splits {
@@ -92,7 +177,9 @@ android {
 //    }
 
     sourceSets {
-        getByName("main").assets.srcDir(rootProject.file("inner_source"))
+        // Keep repository sources available for local development and source integration tests.
+        // Release-equivalent build types intentionally do not inherit this debug-only asset path.
+        getByName("debug").assets.srcDir(rootProject.file("inner_source"))
         // Adds exported schema location as test app assets.
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
@@ -104,29 +191,64 @@ android {
 
     buildTypes {
         debug {
+            applicationIdSuffix = if (sourceAcceptanceBuild) ".sourcelab" else ".debug"
             isMinifyEnabled = false
             isShrinkResources = false
             proguardFiles("proguard-rules.pro")
 
+            manifestPlaceholders["label_res"] = "@string/app_name"
+            // 内部源体检入口只在开发与测试变体开放；用户源诊断在所有变体开放并共用执行器。
+            buildConfigField("boolean", "ENABLE_SOURCE_LAB", "true")
             buildConfig()
-
-//            configure<CrashlyticsExtension> {
-//                mappingFileUploadEnabled = false
-//            }
         }
         release {
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
-            isShrinkResources = false
+            isShrinkResources = true
             proguardFiles("proguard-rules.pro")
 
+            manifestPlaceholders["label_res"] = "@string/app_name"
+            buildConfigField("boolean", "ENABLE_SOURCE_LAB", "false")
             buildConfig()
+        }
+        create("performance") {
+            initWith(getByName("release"))
 
-//            configure<CrashlyticsExtension> {
-//                mappingFileUploadEnabled = false
-//            }
+            // Keep release-equivalent code generation and R8 optimization while making the APK
+            // locally installable alongside both the production and debug applications.
+            applicationIdSuffix = ".performance"
+            versionNameSuffix = "-performance"
+            signingConfig = signingConfigs.getByName("debug")
+            isDebuggable = false
+            matchingFallbacks += listOf("release")
+
+            manifestPlaceholders["label_res"] = "@string/app_name"
+            manifestPlaceholders["bugly_app_channel"] = "local-performance"
+            buildConfigField("boolean", "ENABLE_SOURCE_LAB", "true")
+            buildConfig()
+        }
+        create("beta") {
+            // Testing is release-equivalent, installable and profileable just like Performance,
+            // but has its own package/version identity and visual treatment.
+            initWith(getByName("performance"))
+            applicationIdSuffix = ".beta"
+            versionNameSuffix = "-beta"
+            // Do not fall back to the per-machine debug key: doing so would make installed Beta
+            // apps impossible to update from a build produced with the fixed certificate.
+            signingConfig = betaLocalSigningConfig
+            isDebuggable = false
+            matchingFallbacks += listOf("performance", "release")
+
+            manifestPlaceholders["label_res"] = "@string/app_name"
+            manifestPlaceholders["bugly_app_channel"] = "local-beta"
+            buildConfigField("boolean", "ENABLE_SOURCE_LAB", "true")
+            buildConfig()
         }
     }
+
+    // 源体检（批量测试全部源）需要内置源。buildType 的 sourceSet 要等上面的 buildTypes 声明
+    // 之后才存在，所以这里单独挂；release / performance 仍然不带，保持对外产物体积不变。
+    sourceSets.getByName("beta").assets.srcDir(rootProject.file("inner_source"))
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -145,10 +267,17 @@ android {
         viewBinding = true
         buildConfig = true
     }
-    composeOptions {
-        kotlinCompilerExtensionVersion = build.versions.compose.compiler.get()
-    }
+}
 
+baselineProfile {
+    // The normal performance variant covers the shared launch/navigation paths. The generated
+    // profile is merged into main so both normal and compatibility release variants consume it.
+    variants {
+        create("normalPerformance") {
+            mergeIntoMain = true
+            from(project(":baselineprofile"))
+        }
+    }
 }
 
 fun VariantDimension.buildConfig(){
@@ -192,6 +321,13 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 }
 
 dependencies {
+    implementation("io.github.0o755:ad-audio-probe-runtime:0.1.0")
+    implementation("io.github.0o755:ad-audio-probe-media3-1.9.2:0.1.0")
+    add("normalImplementation", "dev.jdtech.mpv:libmpv:0.5.1")
+    // The compatibility APK restores the compact FFmpeg build used by 6.0.1. It contains only the
+    // demux/mux/codec surface required to remux local TS/HLS segments into MP4.
+    add("compatImplementation", libs.jeff.m3u8)
+    implementation(libs.dfm)
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
     implementation(androidx.bundles.core)
     androidTestImplementation(androidx.bundles.test.core)
@@ -223,8 +359,11 @@ dependencies {
     implementation(compose.bundles.foundation)
     implementation(compose.bundles.material)
     implementation(compose.bundles.material3)
+    androidTestImplementation(compose.ui.test.junit4)
+    debugImplementation(compose.ui.test.manifest)
 
     implementation(libs.bundles.okhttp3)
+    implementation(libs.msal)
     //implementation(libs.bundles.appcenter)
 
     implementation(libs.jsoup)
@@ -234,10 +373,15 @@ dependencies {
 
     //debugImplementation(libs.leakcanary)
 
-    implementation(libs.glide)
     implementation(libs.okkv2)
+    // Okkv2 1.3.5 transitively pins MMKV 1.2.15, whose Android native library is only
+    // 4 KiB-aligned. Override it with the 1.x LTS line that preserves 32-bit ABI support and
+    // ships NDK r28/16 KiB page-size compatible binaries.
+    implementation(libs.mmkv)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlin.coroutines.test)
+    testImplementation(libs.okhttp3.mockwebserver)
 
 //    implementation(libs.accompanist.systemuicontroller)
 //    implementation(libs.accompanist.swiperefresh)
@@ -274,18 +418,14 @@ dependencies {
     implementation(libs.aria.compiler)
     implementation(libs.aria)
 
-    implementation(libs.jeff.m3u8)
 
 
     implementation(project(":easy-player2"))
 
     implementation(project(":easy_transformer"))
 
+    // Installs compiled baseline profiles on first launch and enables dex layout optimization.
+    implementation(libs.profileinstaller)
     implementation(libs.uni.file)
-
-    implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
-    implementation("com.google.firebase:firebase-crashlytics-ktx")
-    implementation("com.google.firebase:firebase-analytics-ktx")
-
 
 }

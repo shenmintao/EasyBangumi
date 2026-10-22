@@ -6,7 +6,8 @@ import com.heyanle.easybangumi4.base.json.JsonFileProvider
 import com.heyanle.easybangumi4.base.preferences.android.AndroidPreferenceStore
 import com.heyanle.easybangumi4.cartoon.entity.CartoonInfo
 import com.heyanle.easybangumi4.cartoon.entity.CartoonTag
-import com.heyanle.easybangumi4.cartoon.repository.db.dao.CartoonInfoDao
+import com.heyanle.easybangumi4.cartoon.repository.CartoonRepository
+import com.heyanle.easybangumi4.plugin.api.entity.CartoonCover
 import com.heyanle.easybangumi4.ui.common.proc.FilterState
 import com.heyanle.easybangumi4.utils.CoroutineProvider
 import com.heyanle.easybangumi4.utils.toJson
@@ -16,6 +17,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.InputStream
 
 /**
@@ -23,13 +26,14 @@ import java.io.InputStream
  * https://github.com/heyanLE
  */
 class CartoonStarController(
-    private val cartoonInfoDao: CartoonInfoDao,
+    private val cartoonRepository: CartoonRepository,
     private val androidPreferenceStore: AndroidPreferenceStore,
     private val jsonFileProvider: JsonFileProvider,
 ) {
 
     private val dispatcher = CoroutineProvider.SINGLE
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val mutationMutex = Mutex()
 
     data class StarState(
         val tagList: List<CartoonTag> = emptyList(),
@@ -40,7 +44,7 @@ class CartoonStarController(
     // 1. 保证有内部 tag （全部，更新），如果 tagList 里没有会补充
     // 2. 保证所有 cartoonInfo 里的 tag 都有对应的 CartoonTag，如果 tagList 里没有会补充
     val cartoonTagFlow = combine(
-        cartoonInfoDao.flowAllStar().distinctUntilChanged(),
+        cartoonRepository.flowAllStar().distinctUntilChanged(),
         jsonFileProvider.cartoonTag.flow
     ) { cartoonInfoList, tagListRes ->
         (tagListRes.okOrNull() ?: emptyList())
@@ -101,6 +105,55 @@ class CartoonStarController(
     }
     fun modifier(cartoonTag: List<CartoonTag>) {
         jsonFileProvider.cartoonTag.set(cartoonTag)
+    }
+
+    /**
+     * Adds every cover to the followed list without toggling items that are already followed.
+     *
+     * The read-modify-write happens inside one transaction so a stale UI snapshot cannot
+     * overwrite playback history or detailed information stored in the same database row.
+     */
+    suspend fun starAll(
+        covers: Collection<CartoonCover>,
+        tags: Collection<CartoonTag> = emptyList(),
+    ) = mutationMutex.withLock {
+        val distinctCovers = covers.distinctBy { it.id to it.source }
+        val normalizedTags = tags
+            .filterNot { it.isInner }
+            .distinctBy { it.label }
+            .sortedBy { it.order }
+        val tagsString = normalizedTags.joinToString(", ") { it.label }
+        val batchTime = System.currentTimeMillis()
+
+        cartoonRepository.mutateCartoonInfo(
+            targets = distinctCovers.map { cover ->
+                CartoonRepository.MutationTarget(
+                    id = cover.id,
+                    source = cover.source,
+                    fallback = CartoonInfo.fromCartoonCover(cover, normalizedTags),
+                )
+            },
+        ) { _, current ->
+            current?.takeIf { it.starTime <= 0L }
+                ?.copy(
+                    starTime = batchTime,
+                    tags = tagsString,
+                    upTime = 0,
+                )
+        }
+    }
+
+    /** Clears only follow metadata and preserves history, detail and playback fields. */
+    suspend fun unstarAll(covers: Collection<CartoonCover>) = mutationMutex.withLock {
+        val distinctCovers = covers.distinctBy { it.id to it.source }
+        cartoonRepository.mutateCartoonInfo(
+            targets = distinctCovers.map { cover ->
+                CartoonRepository.MutationTarget(cover.id, cover.source)
+            },
+        ) { _, current ->
+            current?.takeIf { it.starTime > 0 }
+                ?.copy(starTime = 0, tags = "", upTime = 0)
+        }
     }
 
     private fun List<CartoonTag>.process(

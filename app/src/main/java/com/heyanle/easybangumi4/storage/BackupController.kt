@@ -5,6 +5,7 @@ import com.heyanle.easy_i18n.R
 import com.heyanle.easybangumi4.APP
 import com.heyanle.easybangumi4.BuildConfig
 import com.heyanle.easybangumi4.base.hekv.HeKV
+import com.heyanle.easybangumi4.base.json.JsonFileProvider
 import com.heyanle.easybangumi4.cartoon.repository.db.dao.CartoonInfoDao
 import com.heyanle.easybangumi4.setting.SettingMMKVPreferences
 import com.heyanle.easybangumi4.setting.SettingPreferences
@@ -43,7 +44,11 @@ class BackupController(
         const val HEKVFileName = "global_hekv.json"
         const val ManifestFileName = "manifest.json"
         const val SourcePrefFolderName = "source_pref"
+        const val BoundFolderName = "bound"
+        const val BoundBindingFileName = "cartoon_episode_binding.json"
     }
+
+    private val jsonFileProvider: JsonFileProvider by Inject.injectLazy()
 
     private val cacheRoot = File(APP.getCachePath(), "backup")
 
@@ -85,6 +90,9 @@ class BackupController(
                         if (param.sourcePreferencesSource.isNotEmpty()) {
                             backupSourcePreferences(File(cacheFolder, SourcePrefFolderName), param.sourcePreferencesSource)
                         }
+                    },
+                    async {
+                        backupEpisodeBinding(File(cacheFolder, BoundFolderName))
                     },
                 ).forEach {
                     it.await()
@@ -156,13 +164,21 @@ class BackupController(
             spO.put(themeMode.key(), themeMode.get().name)
             spO.put(padMode.key(), padMode.get().name)
             spO.put(playerOrientationMode.key(), playerOrientationMode.get().name)
+            spO.put(playbackEngine.key(), playbackEngine.get().name)
+            spO.put(fullscreenControlPosition.key(), fullscreenControlPosition.get().name)
+            spO.put(playerCutoutAvoidanceMode.key(), playerCutoutAvoidanceMode.get().name)
+            spO.put(playerCutoutManualPaddingDp.key(), playerCutoutManualPaddingDp.get())
+            spO.put(mpvAnime4kEnabled.key(), mpvAnime4kEnabled.get())
+            spO.put(mpvAnime4kPreset.key(), mpvAnime4kPreset.get().name)
             spO.put(useExternalVideoPlayer.key(), useExternalVideoPlayer.get())
             spO.put(playerBottomNavigationBarPadding.key(), playerBottomNavigationBarPadding.get())
             spO.put(cacheSize.key(), cacheSize.get())
             spO.put(customSpeed.key(), customSpeed.get())
             spO.put(fastWeight.key(), fastWeight.get())
+            spO.put(fastWeightTopMolecule.key(), fastWeightTopMolecule.get())
             spO.put(fastSecond.key(), fastSecond.get())
             spO.put(fastTopSecond.key(), fastTopSecond.get())
+            spO.put(playerSeekFullWidthTimeMS.key(), playerSeekFullWidthTimeMS.get())
             spO.put(detailedScreenEpisodeGridCount.key(), detailedScreenEpisodeGridCount.get())
         }
 
@@ -191,6 +207,17 @@ class BackupController(
             }
             File(folder, "${source.key}.json").writeText(sourceJsonO.toString())
         }
+    }
+
+    /** 集级绑定注册表：只备份绑定关系，不备份视频文件（文件仍在设备本地）。 */
+    private suspend fun backupEpisodeBinding(folder: File) = withContext(Dispatchers.IO) {
+        folder.deleteRecursively()
+        folder.mkdirs()
+        val bindings = jsonFileProvider.cartoonEpisodeBinding.getOrNull().orEmpty()
+        if (bindings.isEmpty()) {
+            return@withContext
+        }
+        File(folder, BoundBindingFileName).writeText(bindings.toJson())
     }
 
     private suspend fun backupManifest(file: File) = withContext(Dispatchers.IO) {

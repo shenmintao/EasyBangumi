@@ -16,13 +16,15 @@ concurrency:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout tag
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # third_party/m3u8-ad-audio-probe is an included Gradle build.
+          submodules: recursive
 
       - name: Setup Java 21
         uses: actions/setup-java@v4
@@ -92,6 +94,17 @@ jobs:
           echo "BANGUMI_VERSION=${app_version}" >> "${GITHUB_ENV}"
           echo "VERSION_CODE=${version_code}" >> "${GITHUB_ENV}"
           echo "APK_NAME=EasyBangumi-${app_version}.apk" >> "${GITHUB_ENV}"
+          echo "COMPAT_APK_NAME=EasyBangumi-${app_version}-compat.apk" >> "${GITHUB_ENV}"
+
+      - name: Check optional service credentials
+        shell: bash
+        env:
+          DANDANPLAY_APP_ID: ${{ secrets.DANDANPLAY_APP_ID }}
+          DANDANPLAY_APP_SECRET: ${{ secrets.DANDANPLAY_APP_SECRET }}
+        run: |
+          if [[ -z "${DANDANPLAY_APP_ID}" || -z "${DANDANPLAY_APP_SECRET}" ]]; then
+            echo "::warning::DANDANPLAY_APP_ID / DANDANPLAY_APP_SECRET are not configured; the DanDanPlay danmaku source will be unavailable in this build"
+          fi
 
       - name: Decode signing keystore
         shell: bash
@@ -105,10 +118,14 @@ jobs:
           fi
           printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > app/easybangumi.jks
 
-      - name: Build signed release APK
+      - name: Build signed release APKs
         env:
           RELEASE: 'true'
           BUGLY_APPID: ${{ secrets.BUGLY_APPID || 'release' }}
+          DANDANPLAY_APP_ID: ${{ secrets.DANDANPLAY_APP_ID }}
+          DANDANPLAY_APP_SECRET: ${{ secrets.DANDANPLAY_APP_SECRET }}
+          ONEDRIVE_CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
+          ONEDRIVE_REDIRECT_URI: ${{ secrets.ONEDRIVE_REDIRECT_URI }}
           KEYSTORE_FILE: easybangumi.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -116,41 +133,54 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew --no-daemon :app:assembleRelease
+          ./gradlew --no-daemon :app:assembleNormalRelease :app:assembleCompatRelease
 
-      - name: Prepare and verify APK
+      - name: Prepare and verify APKs
         shell: bash
         run: |
           set -euo pipefail
 
-          apk_source="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
-          if [[ -z "${apk_source}" ]]; then
-            echo "::error::Release APK was not generated"
-            exit 1
-          fi
-          mv "${apk_source}" "${APK_NAME}"
-
           build_tools="$(find "${ANDROID_HOME}/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
-          apk_info="$("${build_tools}/aapt" dump badging "${APK_NAME}" | head -n 1)"
-          built_package="$(sed -n "s/package: name='\([^']*\)'.*/\1/p" <<< "${apk_info}")"
-          built_version="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "${apk_info}")"
 
-          if [[ "${built_package}" != 'com.heyanle.easybangumi4' ]]; then
-            echo "::error::Unexpected applicationId: ${built_package}"
-            exit 1
-          fi
-          if [[ "${built_version}" != "${BANGUMI_VERSION}" ]]; then
-            echo "::error::Built APK version ${built_version} does not match ${BANGUMI_VERSION}"
-            exit 1
-          fi
+          prepare_apk() {
+            local flavor="$1"
+            local target="$2"
+            local apk_source
+            apk_source="$(find "app/build/outputs/apk/${flavor}/release" -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+            if [[ -z "${apk_source}" ]]; then
+              echo "::error::${flavor} release APK was not generated"
+              exit 1
+            fi
+            mv "${apk_source}" "${target}"
 
-          "${build_tools}/apksigner" verify --verbose --print-certs "${APK_NAME}"
+            local apk_info built_package built_version
+            apk_info="$("${build_tools}/aapt" dump badging "${target}" | head -n 1)"
+            built_package="$(sed -n "s/package: name='\([^']*\)'.*/\1/p" <<< "${apk_info}")"
+            built_version="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "${apk_info}")"
+
+            if [[ "${built_package}" != 'com.heyanle.easybangumi4' ]]; then
+              echo "::error::Unexpected applicationId in ${target}: ${built_package}"
+              exit 1
+            fi
+            if [[ "${built_version}" != "${BANGUMI_VERSION}" ]]; then
+              echo "::error::Built APK version ${built_version} does not match ${BANGUMI_VERSION}"
+              exit 1
+            fi
+
+            "${build_tools}/apksigner" verify --verbose --print-certs "${target}"
+          }
+
+          # normal: arm64-v8a only, mpv + Anime4K; compat: all ABIs (32-bit TV boxes), ExoPlayer only.
+          prepare_apk normal "${APK_NAME}"
+          prepare_apk compat "${COMPAT_APK_NAME}"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APK_NAME }}
-          path: ${{ env.APK_NAME }}
+          name: EasyBangumi-${{ env.BANGUMI_VERSION }}-apks
+          path: |
+            ${{ env.APK_NAME }}
+            ${{ env.COMPAT_APK_NAME }}
           if-no-files-found: error
           compression-level: 0
 
@@ -162,13 +192,15 @@ jobs:
           set -euo pipefail
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" "${APK_NAME}" --clobber
+            gh release upload "${RELEASE_TAG}" "${APK_NAME}" "${COMPAT_APK_NAME}" --clobber
             gh release edit "${RELEASE_TAG}" \
               --title "EasyBangumi ${BANGUMI_VERSION}" \
               --draft=false \
               --latest
           else
-            gh release create "${RELEASE_TAG}" "${APK_NAME}#EasyBangumi ${BANGUMI_VERSION}" \
+            gh release create "${RELEASE_TAG}" \
+              "${APK_NAME}#EasyBangumi ${BANGUMI_VERSION} (arm64, mpv)" \
+              "${COMPAT_APK_NAME}#EasyBangumi ${BANGUMI_VERSION} (compat, 32/64-bit)" \
               --verify-tag \
               --title "EasyBangumi ${BANGUMI_VERSION}" \
               --generate-notes \

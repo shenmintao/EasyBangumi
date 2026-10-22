@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
  * https://github.com/heyanLE
  */
 class WebViewManager(
-    private val cookieManager: CookieManager
+    private val cookieManager: CookieManager,
 ) {
 
     companion object {
@@ -31,7 +31,7 @@ class WebViewManager(
     fun getWebViewOrNull(): WebView? {
         synchronized(lock) {
             if (coreWebViewList.isNotEmpty()) {
-                return coreWebViewList.removeLast()
+                return coreWebViewList.removeAt(coreWebViewList.lastIndex)
             }
 
             if (isMainThread()) {

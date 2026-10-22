@@ -1,5 +1,6 @@
 package com.heyanle.easybangumi4.ui.setting
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,7 +38,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,11 +47,16 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.heyanle.easybangumi4.BuildConfig
 import com.heyanle.easy_i18n.R
-import com.heyanle.easybangumi4.LocalNavController
 import com.heyanle.easybangumi4.setting.SettingPreferences
+import com.heyanle.easybangumi4.danmaku.DanmakuDisplayPreferences
+import com.heyanle.easybangumi4.danmaku.DANDANPLAY_SOURCE_ID
+import com.heyanle.easybangumi4.ui.cartoon_play.DanmakuDisplaySettingsContent
 import com.heyanle.easybangumi4.ui.cartoon_play.speedConfig
 import com.heyanle.easybangumi4.ui.common.BooleanPreferenceItem
 import com.heyanle.easybangumi4.ui.common.EmumPreferenceItem
@@ -72,11 +77,8 @@ fun ColumnScope.PlayerSetting(
     nestedScrollConnection: NestedScrollConnection
 ) {
 
-    val nav = LocalNavController.current
-
-    val scope = rememberCoroutineScope()
-
     val settingPreferences: SettingPreferences by Inject.injectLazy()
+    val danmakuDisplayPreferences: DanmakuDisplayPreferences by Inject.injectLazy()
 
     Column(
         modifier = Modifier
@@ -85,6 +87,8 @@ fun ColumnScope.PlayerSetting(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+
+        PlayerSettingGroupTitle(text = stringResource(id = R.string.player_setting))
 
         BooleanPreferenceItem(
             title = { Text(stringResource(id = com.heyanle.easy_i18n.R.string.use_external_player)) },
@@ -95,6 +99,27 @@ fun ColumnScope.PlayerSetting(
             title = { Text(stringResource(id = com.heyanle.easy_i18n.R.string.player_bottom_nav_padding)) },
             preference = settingPreferences.playerBottomNavigationBarPadding
         )
+
+        val playbackEngine by settingPreferences.playbackEngine.flow()
+            .collectAsState(settingPreferences.playbackEngine.get())
+        val mpvAvailable = BuildConfig.HAS_MPV && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+        val effectivePlaybackEngine = playbackEngine.takeIf {
+            it != SettingPreferences.PlaybackEngine.MPV || mpvAvailable
+        } ?: SettingPreferences.PlaybackEngine.EXO_PLAYER
+        val engineOptions = buildList {
+            add(SettingPreferences.PlaybackEngine.EXO_PLAYER to "ExoPlayer")
+            if (mpvAvailable) {
+                add(SettingPreferences.PlaybackEngine.MPV to "mpv（支持 Anime4K）")
+            }
+        }
+        StringSelectPreferenceItem(
+            title = { Text("播放引擎") },
+            textList = engineOptions.map { it.second },
+            select = engineOptions.indexOfFirst { it.first == effectivePlaybackEngine }.coerceAtLeast(0),
+        ) {
+            settingPreferences.playbackEngine.set(engineOptions[it].first)
+            "重新进入播放页后生效".moeSnackBar()
+        }
 
         EmumPreferenceItem(
             title = { Text(stringResource(id = com.heyanle.easy_i18n.R.string.player_orientation_mode)) },
@@ -109,23 +134,24 @@ fun ColumnScope.PlayerSetting(
             }
         )
 
-        val sizePre by settingPreferences.cacheSize.flow()
-            .collectAsState(settingPreferences.cacheSize.get())
-        val size = settingPreferences.cacheSizeSelection
-        StringSelectPreferenceItem(
-            title = { Text(text = stringResource(id = com.heyanle.easy_i18n.R.string.max_cache_size)) },
-            textList = size.map { it.second },
-            select = size.indexOfFirst { it.first == sizePre }.let { if (it == -1) 0 else it }
-        ) {
-            settingPreferences.cacheSize.set(size[it].first)
-            stringRes(com.heyanle.easy_i18n.R.string.should_reboot).moeSnackBar()
+        if (effectivePlaybackEngine != SettingPreferences.PlaybackEngine.MPV) {
+            val sizePre by settingPreferences.cacheSize.flow()
+                .collectAsState(settingPreferences.cacheSize.get())
+            val size = settingPreferences.cacheSizeSelection
+            StringSelectPreferenceItem(
+                title = { Text(text = stringResource(id = com.heyanle.easy_i18n.R.string.max_cache_size)) },
+                textList = size.map { it.second },
+                select = size.indexOfFirst { it.first == sizePre }.let { if (it == -1) 0 else it }
+            ) {
+                settingPreferences.cacheSize.set(size[it].first)
+                stringRes(com.heyanle.easy_i18n.R.string.should_reboot).moeSnackBar()
+            }
         }
 
         LongEditPreferenceItem(
             title = { Text(text = stringResource(id = com.heyanle.easy_i18n.R.string.player_seek_full_width_time_ms)) },
             preference = settingPreferences.playerSeekFullWidthTimeMS
         )
-
 
         val customSpeed = settingPreferences.customSpeed.flow()
             .collectAsState(settingPreferences.customSpeed.get())
@@ -152,11 +178,44 @@ fun ColumnScope.PlayerSetting(
             settingPreferences.defaultSpeed.set(speed)
         }
 
-
         DoubleTapFastSetting(settingPreferences)
 
+        PlayerSettingGroupTitle(text = stringResource(id = R.string.danmaku_setting))
 
+        val danmakuDisplayConfig by remember(danmakuDisplayPreferences) {
+            danmakuDisplayPreferences.configFlow()
+        }.collectAsState(danmakuDisplayPreferences.getConfig())
+        DanmakuDisplaySettingsContent(
+            config = danmakuDisplayConfig,
+            onConfigChange = danmakuDisplayPreferences::setConfig,
+            onReset = danmakuDisplayPreferences::resetToDefaults,
+        )
+        val enabledProvenance by danmakuDisplayPreferences.enabledProvenance.flow()
+            .collectAsState(danmakuDisplayPreferences.enabledProvenance.get())
+        BooleanPreferenceItem(
+            title = { Text("弹弹play 弹幕") },
+            subtitle = { Text("按数据来源筛选显示的弹幕") },
+            change = DANDANPLAY_SOURCE_ID in enabledProvenance,
+            onChange = { enabled ->
+                danmakuDisplayPreferences.enabledProvenance.set(
+                    enabledProvenance.toMutableSet().apply {
+                        if (enabled) add(DANDANPLAY_SOURCE_ID) else remove(DANDANPLAY_SOURCE_ID)
+                    },
+                )
+            },
+        )
     }
+}
+
+@Composable
+private fun PlayerSettingGroupTitle(text: String) {
+    Text(
+        modifier = Modifier
+            .padding(horizontal = 12.dp)
+            .semantics { heading() },
+        text = text,
+        color = MaterialTheme.colorScheme.primary,
+    )
 }
 
 @Composable

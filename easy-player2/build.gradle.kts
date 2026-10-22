@@ -1,12 +1,13 @@
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
+    alias(build.plugins.kotlin.android)
+    alias(build.plugins.compose.compiler)
     id("maven-publish")
 }
 
 android {
     namespace = "loli.ball.easyplayer2"
-    compileSdk = 34
+    compileSdk = com.heyanle.buildsrc.Android.compileSdk
 
     defaultConfig {
         minSdk = 21
@@ -22,9 +23,6 @@ android {
     }
     buildFeatures {
         compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.9"
     }
 }
 
@@ -47,7 +45,7 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-reflect:1.9.21")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:${build.versions.kotlin.get()}")
 
     val composeMaterialVersion = "1.6.8"
     implementation("androidx.compose.material:material:$composeMaterialVersion")
@@ -61,7 +59,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.compose.material3:material3:1.2.1")
 
-    val media3 = "1.4.0-alpha02"
+    val media3 = "1.9.2"
     api("androidx.media3:media3-exoplayer:$media3")
     api("androidx.media3:media3-exoplayer-dash:$media3")
     api("androidx.media3:media3-ui:$media3")

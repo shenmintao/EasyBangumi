@@ -1,6 +1,7 @@
 package com.heyanle.easybangumi4.setting
 
 import android.app.Application
+import android.os.Build
 import com.heyanle.easybangumi4.base.preferences.PreferenceStore
 import com.heyanle.easybangumi4.base.preferences.getEnum
 import com.heyanle.easybangumi4.theme.EasyThemeMode
@@ -21,6 +22,9 @@ class SettingPreferences(
     // 无痕模式
     val isInPrivate = preferenceStore.getBoolean("in_private", false)
 
+    // 新安装默认使用新版；已有用户已经持久化的选择保持不变。
+    val useV2Ui = preferenceStore.getBoolean("use_v2_ui", true)
+
     // 外观设置
     // 夜间模式
     enum class DarkMode {
@@ -31,6 +35,10 @@ class SettingPreferences(
     // 主题设置
     val isThemeDynamic = preferenceStore.getBoolean("theme_dynamic", true)
     val themeMode = preferenceStore.getEnum<EasyThemeMode>("theme_mode", EasyThemeMode.Default)
+
+    // V2 has its own accent-color system. Keep this independent from the legacy Material theme so
+    // both activities can coexist without changing each other's appearance.
+    val v2ThemeColor = preferenceStore.getString("v2_theme_color", "brand_yellow")
 
     // 平板模式
     enum class PadMode {
@@ -43,9 +51,90 @@ class SettingPreferences(
         Auto, Enable, Disable
     }
 
+    enum class PlaybackEngine {
+        EXO_PLAYER,
+        MPV,
+    }
+
+    enum class FullscreenControlPosition {
+        AUTO,
+        LEFT,
+        RIGHT,
+    }
+
+    enum class PlayerCutoutAvoidanceMode {
+        AUTO,
+        DISABLED,
+        MANUAL;
+
+        companion object {
+            fun isAutomaticSupported(sdkInt: Int = Build.VERSION.SDK_INT): Boolean =
+                sdkInt >= Build.VERSION_CODES.P
+
+            fun normalizeForSdk(
+                mode: PlayerCutoutAvoidanceMode,
+                sdkInt: Int = Build.VERSION.SDK_INT,
+            ): PlayerCutoutAvoidanceMode =
+                if (mode == AUTO && !isAutomaticSupported(sdkInt)) DISABLED else mode
+
+            fun defaultForSdk(sdkInt: Int = Build.VERSION.SDK_INT): PlayerCutoutAvoidanceMode =
+                if (isAutomaticSupported(sdkInt)) AUTO else DISABLED
+
+            fun selectableValues(sdkInt: Int = Build.VERSION.SDK_INT): List<PlayerCutoutAvoidanceMode> =
+                if (isAutomaticSupported(sdkInt)) {
+                    listOf(AUTO, DISABLED, MANUAL)
+                } else {
+                    listOf(DISABLED, MANUAL)
+                }
+        }
+    }
+
+    enum class MpvAnime4KPreset {
+        FAST,
+        QUALITY,
+        STRONG,
+    }
+
     val playerOrientationMode = preferenceStore.getEnum<PlayerOrientationMode>(
         "player_orientation_mode",
         PlayerOrientationMode.Auto
+    )
+
+    val playbackEngine = preferenceStore.getEnum(
+        "playback_engine",
+        PlaybackEngine.EXO_PLAYER,
+    )
+
+    val fullscreenControlPosition = preferenceStore.getEnum(
+        "fullscreen_control_position",
+        FullscreenControlPosition.AUTO,
+    )
+    val playerCutoutAvoidanceMode = preferenceStore.getEnum(
+        "player_cutout_avoidance_mode",
+        PlayerCutoutAvoidanceMode.defaultForSdk(),
+    )
+
+    init {
+        val storedMode = playerCutoutAvoidanceMode.get()
+        val supportedMode = PlayerCutoutAvoidanceMode.normalizeForSdk(storedMode)
+        if (storedMode != supportedMode) {
+            playerCutoutAvoidanceMode.set(supportedMode)
+        }
+    }
+
+    val playerCutoutManualPaddingDp = preferenceStore.getInt(
+        "player_cutout_manual_padding_dp",
+        36,
+    )
+
+    // ExoPlayer 专属：音频指纹广告探针。规则地址由用户或后续云端配置提供。
+    val exoAdAudioProbeEnabled = preferenceStore.getBoolean("exo_ad_audio_probe_enabled", false)
+    val exoAdAudioProbeRulesUrl = preferenceStore.getString("exo_ad_audio_probe_rules_url", "")
+
+    val mpvAnime4kEnabled = preferenceStore.getBoolean("mpv_anime4k_enabled", false)
+    val mpvAnime4kPreset = preferenceStore.getEnum(
+        "mpv_anime4k_preset",
+        MpvAnime4KPreset.FAST,
     )
 
     // 使用外置播放器
