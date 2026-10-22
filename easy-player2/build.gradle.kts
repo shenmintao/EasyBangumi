@@ -10,7 +10,8 @@ android {
     compileSdk = com.heyanle.buildsrc.Android.compileSdk
 
     defaultConfig {
-        minSdk = 21
+        // media3 1.9 自身要求 minSdk 23，与 app 的最低版本保持一致
+        minSdk = com.heyanle.buildsrc.Android.minSdk
     }
 
     compileOptions {
@@ -23,6 +24,10 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    testOptions {
+        // Robolectric needs the merged manifest/resources to host Compose UI tests.
+        unitTests.isIncludeAndroidResources = true
     }
 }
 
@@ -68,4 +73,10 @@ dependencies {
     api("androidx.media3:media3-common:$media3")
     api("androidx.media3:media3-effect:$media3")
     api("androidx.media3:media3-muxer:$media3")
+
+    testImplementation("junit:junit:4.13.2")
+    // 遥控器按键与焦点行为的 JVM UI 测试
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4:1.7.4")
+    testImplementation("androidx.compose.ui:ui-test-manifest:1.7.4")
 }

@@ -64,14 +64,20 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
@@ -102,7 +108,10 @@ import com.heyanle.easybangumi4.player.mpv.MpvAnime4KStatus
 import com.heyanle.easybangumi4.setting.SettingPreferences
 import com.heyanle.easybangumi4.ui.common.PlayerCutoutInsets
 import com.heyanle.easybangumi4.ui.common.TabIndicator
+import com.heyanle.easybangumi4.ui.common.rememberIsTv
 import com.heyanle.inject.core.Inject
+import loli.ball.easyplayer2.LocalDpadFocusRequester
+import loli.ball.easyplayer2.dpadFocusTrap
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -320,6 +329,9 @@ internal fun OptionalPlayerDanmakuToggle(
  *
  * Keeping the scrim, motion and safe-area behavior here prevents episode selection and playback
  * settings from drifting into two visually similar but behaviorally different implementations.
+ *
+ * 电视遥控器：面板打开后把焦点移进面板（优先 [initialFocusRequester]，例如当前剧集/当前倍速，
+ * 否则是面板里的第一个控件），打开期间焦点不会移出面板，关闭后把焦点还给播放画面。
  */
 @Composable
 internal fun FullscreenPlayerSidePanel(
@@ -327,8 +339,32 @@ internal fun FullscreenPlayerSidePanel(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     panelModifier: Modifier = Modifier,
+    initialFocusRequester: FocusRequester? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val isTv = rememberIsTv()
+    val panelFocusRequester = remember { FocusRequester() }
+    var panelHasFocus by remember { mutableStateOf(false) }
+    val playerFocusRequester = LocalDpadFocusRequester.current
+    if (isTv) {
+        LaunchedEffect(visible) {
+            if (visible) {
+                // 内容（例如选集列表滚动到当前集）可能需要几帧才就绪，重试一小段时间
+                repeat(30) { attempt ->
+                    withFrameNanos { }
+                    if (panelHasFocus) return@LaunchedEffect
+                    val target = if (initialFocusRequester != null && attempt < 20) {
+                        initialFocusRequester
+                    } else {
+                        panelFocusRequester
+                    }
+                    runCatching { target.requestFocus() }
+                }
+            } else if (panelHasFocus) {
+                runCatching { playerFocusRequester?.requestFocus() }
+            }
+        }
+    }
     val activity = LocalContext.current as Activity
     val preferences: SettingPreferences by Inject.injectLazy()
     val cutoutMode by preferences.playerCutoutAvoidanceMode.flow().collectAsState(
@@ -353,6 +389,8 @@ internal fun FullscreenPlayerSidePanel(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.52f))
+                    // 遮罩只用于点击关闭，不应该成为遥控器的焦点
+                    .focusProperties { canFocus = !isTv }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -377,6 +415,8 @@ internal fun FullscreenPlayerSidePanel(
                     .fillMaxHeight()
                     .fillMaxWidth(0.45f)
                     .widthIn(max = 360.dp)
+                    .onFocusChanged { panelHasFocus = it.hasFocus }
+                    .focusProperties { canFocus = !isTv }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -387,6 +427,16 @@ internal fun FullscreenPlayerSidePanel(
             ) {
                 Column(
                     modifier = Modifier
+                        .then(
+                            if (isTv) {
+                                Modifier
+                                    .focusRequester(panelFocusRequester)
+                                    // 面板打开期间方向键不会把焦点移出面板，关闭时仍可以把焦点还给播放画面
+                                    .dpadFocusTrap()
+                            } else {
+                                Modifier
+                            }
+                        )
                         .fillMaxSize()
                         // 面板底色可以延伸到挖孔区，但内部所有操作必须保持可点击。
                         .padding(

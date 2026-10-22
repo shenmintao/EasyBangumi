@@ -102,13 +102,14 @@ fun BottomControl(
 @Composable
 fun RowScope.PlayPauseBtn(
     isPlaying: Boolean,
+    modifier: Modifier = Modifier,
     onClick: (Boolean) -> Unit,
 ) {
     var isFocused by remember { mutableStateOf(false) }
     Icon(
         if (isPlaying) Icons.Filled.Pause
         else Icons.Filled.PlayArrow,
-        modifier = Modifier
+        modifier = modifier
             .clip(CircleShape)
             .onFocusChanged { isFocused = it.isFocused }
             .border(
@@ -151,6 +152,10 @@ fun RowScope.TimeText(
     )
 }
 
+/**
+ * @param keyFocusable 进度条是否可以被方向键聚焦。电视上传 false：拖动由播放画面的左/右键
+ * （[DpadVideoController]）统一处理，进度条只负责显示预览位置，不会把左右键吃掉。
+ */
 @Composable
 fun RowScope.ViewSeekBar(
     during: Int,
@@ -158,6 +163,7 @@ fun RowScope.ViewSeekBar(
     secondary: Int,
     onValueChange: (Int) -> Unit,
     onValueChangeFinish: () -> Unit,
+    keyFocusable: Boolean = true,
 ) {
     val colors = SliderDefaults.colors()
     AndroidView(
@@ -173,6 +179,7 @@ fun RowScope.ViewSeekBar(
                 progressTintList = ColorStateList.valueOf(colors.activeTrackColor.toArgb())
                 progressBackgroundTintList = ColorStateList.valueOf(Color.White.copy(alpha = 0.6f).toArgb())
                 secondaryProgressTintList = ColorStateList.valueOf(Color.White.copy(alpha = 0.8f).toArgb())
+                isFocusable = keyFocusable
                 var isTrackingByKey = false
                 setOnSeekBarChangeListener(object : OnSeekBarChangeListener {
                     override fun onProgressChanged(
@@ -219,6 +226,7 @@ fun RowScope.ViewSeekBar(
             it.progress = position
             it.secondaryProgress = secondary
             it.max = during
+            if (it.isFocusable != keyFocusable) it.isFocusable = keyFocusable
         }
     )
 }

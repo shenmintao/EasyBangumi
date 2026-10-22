@@ -29,6 +29,7 @@ import com.heyanle.easybangumi4.cartoon.entity.CartoonInfo
 import com.heyanle.easybangumi4.ui.common.CartoonStarCardWithCover
 import com.heyanle.easybangumi4.ui.common.EmptyPage
 import com.heyanle.easybangumi4.ui.common.FastScrollToTopFab
+import com.heyanle.easybangumi4.ui.common.rememberIsTv
 import com.heyanle.easybangumi4.v2.theme.V2Theme
 import com.heyanle.easybangumi4.v2.theme.V2Tokens
 import kotlinx.coroutines.delay
@@ -49,8 +50,11 @@ internal fun StarListV1CopyV2(
     val gridState = rememberLazyGridState()
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+    // TV 上没有下拉手势，焦点滚动也不应该带动顶栏折叠，否则列表会上下抖动
+    val isTv = rememberIsTv()
     val refreshing = remember { mutableStateOf(false) }
     val refreshState = rememberPullRefreshState(refreshing = refreshing.value, onRefresh = {
+        if (isTv) return@rememberPullRefreshState
         scope.launch {
             refreshing.value = true
             onRefresh()
@@ -58,11 +62,11 @@ internal fun StarListV1CopyV2(
             refreshing.value = false
         }
     })
-    Box(Modifier.fillMaxSize().pullRefresh(refreshState)) {
+    Box(Modifier.fillMaxSize().let { if (isTv) it else it.pullRefresh(refreshState) }) {
         LazyVerticalGrid(
             state = gridState,
             modifier = Modifier.fillMaxSize().let { base ->
-                nestedScrollConnection?.let(base::nestedScroll) ?: base
+                nestedScrollConnection?.takeUnless { isTv }?.let(base::nestedScroll) ?: base
             },
             columns = GridCells.Adaptive(100.dp),
             contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 88.dp),
@@ -89,13 +93,15 @@ internal fun StarListV1CopyV2(
                 )
             }
         }
-        PullRefreshIndicator(
-            refreshing.value,
-            refreshState,
-            Modifier.align(Alignment.TopCenter),
-            backgroundColor = V2Tokens.SurfaceMuted,
-            contentColor = V2Theme.colors.accent,
-        )
+        if (!isTv) {
+            PullRefreshIndicator(
+                refreshing.value,
+                refreshState,
+                Modifier.align(Alignment.TopCenter),
+                backgroundColor = V2Tokens.SurfaceMuted,
+                contentColor = V2Theme.colors.accent,
+            )
+        }
         FastScrollToTopFab(listState = gridState)
     }
 }

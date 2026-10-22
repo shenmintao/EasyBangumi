@@ -378,12 +378,12 @@ fun GestureControllerScope.SlideUI() {
         enter = fadeIn(),
         exit = fadeOut()
     ) {
-        Box(
+        Column(
             Modifier
                 .clip(RoundedCornerShape(10.dp))
                 .background(Color.Black.copy(alpha = 0.5f))
                 .padding(16.dp),
-            contentAlignment = Alignment.Center
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
                 textAlign = TextAlign.Center,
@@ -392,6 +392,16 @@ fun GestureControllerScope.SlideUI() {
                 color = Color.White,
                 style = MaterialTheme.typography.titleLarge
             )
+            // 遥控器拖动时额外显示相对起点的偏移，例如 +01:30
+            this@GestureControllerScope.vm.seekPreviewOriginMs?.let { origin ->
+                val delta = this@GestureControllerScope.vm.horizontalScrollPosition.toLong() - origin
+                Text(
+                    textAlign = TextAlign.Center,
+                    text = (if (delta >= 0) "+" else "-") + TimeUtils.toString(kotlin.math.abs(delta)),
+                    color = Color.White.copy(alpha = 0.8f),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
         }
     }
 }

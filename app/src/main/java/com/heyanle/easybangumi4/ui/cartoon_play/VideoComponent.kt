@@ -90,13 +90,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -132,6 +141,8 @@ import com.heyanle.easybangumi4.ui.cartoon_play.view_model.CartoonPlayingViewMod
 import com.heyanle.easybangumi4.ui.cartoon_play.view_model.DetailedViewModel
 import com.heyanle.easybangumi4.ui.common.CombineClickIconButton
 import com.heyanle.easybangumi4.ui.common.focusHighlight
+import com.heyanle.easybangumi4.ui.common.rememberIsTv
+import com.heyanle.easybangumi4.ui.common.tvFocusEntry
 import com.heyanle.easybangumi4.ui.common.ErrorPage
 import com.heyanle.easybangumi4.ui.common.LoadingPage
 import com.heyanle.easybangumi4.ui.common.PlayerCutoutInsets
@@ -154,6 +165,7 @@ import loli.ball.easyplayer2.BottomControl
 import loli.ball.easyplayer2.BrightVolumeUI
 import loli.ball.easyplayer2.ControlViewModel
 import loli.ball.easyplayer2.DpadVideoController
+import loli.ball.easyplayer2.LocalDpadFocusRequester
 import loli.ball.easyplayer2.GestureController
 import loli.ball.easyplayer2.LongTouchUI
 import loli.ball.easyplayer2.PlayPauseBtn
@@ -409,11 +421,14 @@ fun VideoFloat(
     // 倍速窗口
     val customSpeed by cartoonPlayingViewModel.customSpeed.collectAsState()
     val dismissSpeed = { showSpeedWin.value = false }
+    // TV 遥控器：打开倍速面板时焦点放在当前倍速上
+    val speedFocusRequester = remember { FocusRequester() }
     val speedContent: @Composable ColumnScope.() -> Unit = {
         PlaybackSpeedPanelContent(
             currentSpeed = controlVM.curSpeed,
             customSpeed = customSpeed,
             customSelected = cartoonPlayingViewModel.isCustomSpeed.value,
+            selectedFocusRequester = speedFocusRequester,
             onDismiss = dismissSpeed,
             onCustomClick = {
                 if (customSpeed > 0f) {
@@ -431,6 +446,7 @@ fun VideoFloat(
         )
     }
     if (useNormalSpeedBottomSheet && !controlVM.isFullScreen) {
+        TvSheetFocusEffect(visible = showSpeedWin.value, target = speedFocusRequester)
         if (showSpeedWin.value) {
             ModalBottomSheet(
                 onDismissRequest = dismissSpeed,
@@ -451,6 +467,7 @@ fun VideoFloat(
             panelModifier = Modifier.semantics {
                 contentDescription = "播放速度选择"
             },
+            initialFocusRequester = speedFocusRequester,
             content = speedContent,
         )
     }
@@ -461,17 +478,17 @@ fun VideoFloat(
     val currentEpisodeIndex = playLine.sortedEpisodeList.indexOf(playState.episode)
         .coerceAtLeast(0)
     val episodeListState = rememberLazyListState(currentEpisodeIndex)
-    // TV 遥控器：打开选集面板时把焦点放到当前播放的剧集上
+    // TV 遥控器：打开选集面板时把焦点放到当前播放的剧集上（由面板在内容就绪后请求）
     val episodeFocusRequester = remember { FocusRequester() }
     LaunchedEffect(currentEpisodeIndex, showEpisodeWin.value) {
         if (showEpisodeWin.value && playLine.sortedEpisodeList.isNotEmpty()) {
             episodeListState.animateScrollToItem(currentEpisodeIndex)
-            runCatching { episodeFocusRequester.requestFocus() }
         }
     }
     FullscreenPlayerSidePanel(
         visible = showEpisodeWin.value && controlVM.isFullScreen,
         onDismiss = { showEpisodeWin.value = false },
+        initialFocusRequester = episodeFocusRequester,
     ) {
         Row(
             modifier = Modifier
@@ -600,11 +617,40 @@ fun VideoFloat(
     }
 }
 
+/**
+ * 电视遥控器：底部弹窗（独立窗口）打开时把焦点放到 [target]，关闭后把焦点交还给播放画面，
+ * 避免弹窗关闭后焦点停在已经收起的控制栏上而丢失。
+ */
+@Composable
+private fun TvSheetFocusEffect(visible: Boolean, target: FocusRequester?) {
+    if (!rememberIsTv()) return
+    val playerFocusRequester = LocalDpadFocusRequester.current
+    var wasVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(visible) {
+        if (visible) {
+            wasVisible = true
+            if (target == null) return@LaunchedEffect
+            // 弹窗内容要在下一帧才会组合，等到可以请求焦点为止
+            repeat(30) {
+                withFrameNanos { }
+                if (runCatching { target.requestFocus() }.isSuccess) return@LaunchedEffect
+            }
+        } else if (wasVisible) {
+            wasVisible = false
+            repeat(10) {
+                withFrameNanos { }
+                if (runCatching { playerFocusRequester?.requestFocus() }.isSuccess) return@LaunchedEffect
+            }
+        }
+    }
+}
+
 @Composable
 private fun ColumnScope.PlaybackSpeedPanelContent(
     currentSpeed: Float,
     customSpeed: Float,
     customSelected: Boolean,
+    selectedFocusRequester: FocusRequester? = null,
     onDismiss: () -> Unit,
     onCustomClick: () -> Unit,
     onEditCustom: () -> Unit,
@@ -650,6 +696,7 @@ private fun ColumnScope.PlaybackSpeedPanelContent(
             },
             selected = customSelected,
             supportingText = if (customSpeed > 0f) "轻触即可切换，编辑后立即生效" else "点击设置播放速度",
+            focusRequester = selectedFocusRequester.takeIf { customSelected },
             onClick = onCustomClick,
             action = if (customSpeed > 0f) {
                 {
@@ -666,9 +713,11 @@ private fun ColumnScope.PlaybackSpeedPanelContent(
         )
 
         speedConfig.forEach { (name, speed) ->
+            val selected = !customSelected && currentSpeed == speed
             PlaybackSpeedOption(
                 label = name,
-                selected = !customSelected && currentSpeed == speed,
+                selected = selected,
+                focusRequester = selectedFocusRequester.takeIf { selected },
                 onClick = { onPresetClick(speed) },
             )
         }
@@ -681,12 +730,15 @@ private fun PlaybackSpeedOption(
     selected: Boolean,
     onClick: () -> Unit,
     supportingText: String? = null,
+    focusRequester: FocusRequester? = null,
     action: (@Composable () -> Unit)? = null,
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .clip(RoundedCornerShape(14.dp))
+            .focusHighlight(shape = RoundedCornerShape(14.dp))
             .clickable(onClick = onClick),
         color = if (selected) {
             MaterialTheme.colorScheme.primaryContainer
@@ -784,6 +836,12 @@ fun VideoControl(
     val fullscreenControlPosition by cartoonPlayingVM.fullscreenControlPosition.collectAsState()
     val scope = rememberCoroutineScope()
     val isTv = remember(ctx) { TvUtils.isTvDevice(ctx) }
+    // 电视遥控器：上/下键唤出控制栏时把焦点移到这些位置
+    val tvBottomFocus = remember { FocusRequester() }
+    val tvSideFocus = remember { FocusRequester() }
+    val tvTopFocus = remember { FocusRequester() }
+    var tvHasFocus by remember { mutableStateOf(false) }
+    var tvBackConsumed by remember { mutableStateOf(false) }
     val screenshotController = rememberPlayerScreenshotController(
         playingViewModel = cartoonPlayingVM,
         danmakuRenderer = danmakuRenderer,
@@ -813,7 +871,46 @@ fun VideoControl(
             }
         }
     } else {
-        Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(
+                    if (isTv) {
+                        Modifier
+                            .onFocusChanged { tvHasFocus = it.hasFocus }
+                            .onPreviewKeyEvent { event ->
+                                // 遥控器操作期间保持控制栏显示，重新计时自动隐藏
+                                if (event.type == KeyEventType.KeyDown &&
+                                    event.key != Key.Back &&
+                                    controlVM.controlState == ControlViewModel.ControlState.Normal &&
+                                    controlVM.isShowOverlay()
+                                ) {
+                                    controlVM.showControl()
+                                }
+                                false
+                            }
+                            .onKeyEvent { event ->
+                                // 焦点在控制栏按钮上时按返回：收起控制栏并把焦点还给播放画面
+                                if (event.key != Key.Back) return@onKeyEvent false
+                                when (event.type) {
+                                    KeyEventType.KeyDown -> {
+                                        tvBackConsumed = !controlVM.isDpadSurfaceFocused
+                                        if (tvBackConsumed) {
+                                            controlVM.hideControl()
+                                            runCatching { controlVM.dpadFocusRequester.requestFocus() }
+                                        }
+                                        tvBackConsumed
+                                    }
+
+                                    KeyEventType.KeyUp -> tvBackConsumed.also { tvBackConsumed = false }
+                                    else -> false
+                                }
+                            }
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
 
             val fastWeight by cartoonPlayingVM.fastWeight.collectAsState()
             val fastSecond by cartoonPlayingVM.fastSecond.collectAsState()
@@ -822,6 +919,83 @@ fun VideoControl(
             val fastTopWeightMolecule by cartoonPlayingVM.fastTopWeightMolecule.collectAsState()
             val playerSeekFullWidthTime by cartoonPlayingVM.playerSeekFullWidthTimeMS.collectAsState()
             val gestureVerticalPadding = if (controlVM.isFullScreen) 64.dp else 40.dp
+
+            if (isTv) {
+                // 出错时确认键重试，播完时确认键重播
+                val tvPrimaryAction: (() -> Unit)? = when {
+                    playingState.isError -> {
+                        val inner = (playingState.errorThrowable as? ParserException)?.exception
+                        if (inner is PlayInfoNeedVerificationBusinessException) {
+                            { cartoonPlayingVM.onSearchNeedWebCheck(inner) }
+                        } else {
+                            { cartoonPlayingVM.tryRefresh() }
+                        }
+                    }
+
+                    controlVM.controlState == ControlViewModel.ControlState.Ended -> {
+                        { cartoonPlayingVM.tryRefresh() }
+                    }
+
+                    else -> null
+                }
+                val revealTvControls: (Boolean) -> Unit = { up ->
+                    controlVM.showControl()
+                    scope.launch {
+                        // 控制栏在下一帧才会组合出来，稍等几帧再移动焦点
+                        repeat(4) {
+                            withFrameNanos { }
+                            val target = when {
+                                !up -> tvBottomFocus
+                                controlVM.isFullScreen -> tvSideFocus
+                                else -> tvTopFocus
+                            }
+                            runCatching { target.requestFocus() }
+                            if (!controlVM.isDpadSurfaceFocused) return@launch
+                            // 目标暂时没有可聚焦的按钮时退回到底栏
+                            runCatching { tvBottomFocus.requestFocus() }
+                            if (!controlVM.isDpadSurfaceFocused) return@launch
+                        }
+                    }
+                }
+                DpadVideoController(
+                    vm = controlVM,
+                    // 单击左/右的步进与「双击快进」设置一致
+                    seekStepMs = fastSecond * 1000L,
+                    primaryAction = tvPrimaryAction,
+                    onEnterFullScreen = {
+                        controlVM.onFullScreen(fullScreen = true, reverse = false, ctx = ctx)
+                    },
+                    onRevealControls = revealTvControls,
+                    onMenu = if (controlVM.isFullScreen) {
+                        { showEpisodeWin.value = true }
+                    } else {
+                        null
+                    },
+                )
+                // 刚进入播放页时控制栏默认显示且不会自动收起（触屏需要点一下），电视上直接开始计时
+                LaunchedEffect(Unit) {
+                    if (controlVM.controlState == ControlViewModel.ControlState.Normal) {
+                        controlVM.showControl()
+                    }
+                }
+                // 控制栏自动收起时，如果焦点还在栏内按钮上，交还给播放画面，避免焦点丢失
+                val overlayVisible = controlVM.isShowOverlay()
+                LaunchedEffect(overlayVisible) {
+                    if (!overlayVisible && tvHasFocus && !controlVM.isDpadSurfaceFocused) {
+                        runCatching { controlVM.dpadFocusRequester.requestFocus() }
+                    }
+                }
+                // 进入全屏时确保焦点在播放画面上（例如从控制栏的全屏按钮进入），
+                // 这样左/右键立即可以拖动进度。
+                LaunchedEffect(controlVM.isFullScreen) {
+                    if (controlVM.isFullScreen) {
+                        withFrameNanos { }
+                        if (!controlVM.isDpadSurfaceFocused) {
+                            runCatching { controlVM.dpadFocusRequester.requestFocus() }
+                        }
+                    }
+                }
+            }
 
             if (fastWeight <= 0) {
                 // 手势
@@ -917,7 +1091,8 @@ fun VideoControl(
                     vm = controlVM,
                     cutoutInsets = cutoutInsets,
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
+                        .align(Alignment.TopCenter),
+                    focusRequester = if (isTv) tvTopFocus else null,
                 ) {
                     if (onShowPlayerSettings == null) {
                         showVideoScaleTypeWin.value = true
@@ -943,7 +1118,9 @@ fun VideoControl(
                     .align(if (railOnRight) Alignment.CenterEnd else Alignment.CenterStart),
                 screenshotState = screenshotController.state,
                 // 解析中画面还是旧帧或黑屏，隐藏截图入口避免存下错误截图。
-                showCapture = !cartoonPlayingVM.isMpvEngine && !playingState.isLoading,
+                // 电视上截图/录屏没有意义，侧栏只保留倍速、弹幕、选集。
+                showCapture = !isTv && !cartoonPlayingVM.isMpvEngine && !playingState.isLoading,
+                focusRequester = if (isTv) tvSideFocus else null,
                 onImage = screenshotController::capture,
                 onShowRecorded = {
                     cartoonPlayingVM.showRecord()
@@ -956,10 +1133,13 @@ fun VideoControl(
                 onEpisode = {
                     showEpisodeWin.value = true
                 },
-                onLock = {
-                    controlVM.onLockedChange(
-                        controlVM.controlState != ControlViewModel.ControlState.Locked
-                    )
+                // 锁定只用于防止误触，遥控器不需要，隐藏后也不会误锁无法解除
+                onLock = if (isTv) null else {
+                    {
+                        controlVM.onLockedChange(
+                            controlVM.controlState != ControlViewModel.ControlState.Locked
+                        )
+                    }
                 },
             )
             CaptureResultCard(
@@ -969,6 +1149,7 @@ fun VideoControl(
                     .padding(horizontal = 64.dp),
             )
             NormalVideoTopBar(controlVM,
+                focusRequester = if (isTv) tvTopFocus else null,
                 showTools = playingState.isPlaying,
                 showDlna = detailState.cartoonInfo?.source != LocalSource.LOCAL_SOURCE_KEY,
                 showCastAndShare = showNormalCastAndShare,
@@ -1052,23 +1233,13 @@ fun VideoControl(
                 canPlayNext = cartoonPlayVM.hasNext(),
                 danmakuControlState = if (showNormalDanmakuInTopBar) null else danmakuControlState,
                 showNormalSpeed = showNormalSpeedInBottomBar,
+                playPauseFocusRequester = if (isTv) tvBottomFocus else null,
+                // 电视上进度条只显示预览，拖动由播放画面的左/右键完成
+                seekBarKeyFocusable = !isTv,
             )
 
             // 加载按钮
             ProgressBox(vm = controlVM)
-
-            if (isTv) {
-                // 面板或控制栏显示时交回 Compose 的空间焦点导航。
-                val isDpadEnabled = !showEpisodeWin.value &&
-                        !showSpeedWin.value &&
-                        !showVideoScaleTypeWin.value &&
-                        !controlVM.isShowOverlay()
-                DpadVideoController(
-                    vm = controlVM,
-                    enabled = isDpadEnabled,
-                    onNext = cartoonPlayVM::tryNext,
-                )
-            }
         }
     }
 
@@ -1254,6 +1425,7 @@ fun FullScreenRightToolBar(
     onLock: (() -> Unit)? = null,
     cutoutInsets: PlayerCutoutInsets.Resolved,
     railOnRight: Boolean = true,
+    focusRequester: FocusRequester? = null,
 ) {
 
     (vm.isShowOverlay() && (vm.isFullScreen || isShowOnNormalScreen)).logi("VideoComponent")
@@ -1265,7 +1437,10 @@ fun FullScreenRightToolBar(
             horizontalAlignment = Alignment.CenterHorizontally,
             // 背后遮罩保持满屏，只将可交互按钮向内避让挖孔。
             // 这样不会在黑色渐变边缘留下一条突兀的透明缝隙。
-            modifier = Modifier.padding(
+            modifier = Modifier
+                // 遥控器上键唤出控制栏时从这里进入侧栏的第一个按钮
+                .tvFocusEntry(focusRequester)
+                .padding(
                 start = if (!railOnRight) {
                     cutoutInsets.paddingFor(PlayerCutoutInsets.Side.LEFT)
                 } else {
@@ -1453,6 +1628,7 @@ fun FullScreenVideoTopBar(
     cutoutInsets: PlayerCutoutInsets.Resolved,
     modifier: Modifier = Modifier,
     isShowOnNormalScreen: Boolean = false,
+    focusRequester: FocusRequester? = null,
     onMoreClick: () -> Unit,
 ) {
     AnimatedVisibility(
@@ -1463,6 +1639,7 @@ fun FullScreenVideoTopBar(
     ) {
         // 渐变遮罩保持满宽，仅标题栏内容避让挖孔侧。
         TopControl(
+            modifier = Modifier.tvFocusEntry(focusRequester),
             contentPadding = PaddingValues(
                 start = cutoutInsets.paddingFor(PlayerCutoutInsets.Side.LEFT),
                 end = cutoutInsets.paddingFor(PlayerCutoutInsets.Side.RIGHT),
@@ -1538,6 +1715,7 @@ fun FullScreenVideoTopBar(
 fun NormalVideoTopBar(
     vm: ControlViewModel,
     modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
     showTools: Boolean,
     showDlna: Boolean,
     showCastAndShare: Boolean = true,
@@ -1557,7 +1735,7 @@ fun NormalVideoTopBar(
         exit = fadeOut(),
         enter = fadeIn(),
     ) {
-        TopControl {
+        TopControl(modifier = Modifier.tvFocusEntry(focusRequester)) {
             BackBtn(onBack)
 
             Spacer(modifier = Modifier.weight(1f))
@@ -1634,6 +1812,8 @@ fun EasyVideoBottomControl(
     canPlayNext: Boolean = true,
     danmakuControlState: PlayerDanmakuControlState? = null,
     showNormalSpeed: Boolean = false,
+    playPauseFocusRequester: FocusRequester? = null,
+    seekBarKeyFocusable: Boolean = true,
 ) {
     // The total duration fixes the number of digits and ':' separators on both sides. Measure
     // every digit first, then build a mask with the widest one, so "88:88" never gets clipped
@@ -1664,9 +1844,17 @@ fun EasyVideoBottomControl(
         BottomControl(
             paddingValues
         ) {
-            PlayPauseBtn(isPlaying = vm.playWhenReady, onClick = {
-                vm.onPlayPause(it)
-            })
+            PlayPauseBtn(
+                isPlaying = vm.playWhenReady,
+                modifier = if (playPauseFocusRequester != null) {
+                    Modifier.focusRequester(playPauseFocusRequester)
+                } else {
+                    Modifier
+                },
+                onClick = {
+                    vm.onPlayPause(it)
+                },
+            )
 
             if (vm.isFullScreen && canPlayNext) {
                 Icon(
@@ -1708,7 +1896,8 @@ fun EasyVideoBottomControl(
                 onValueChangeFinish = {
                     "onValueChangeFinish".logi("ViewComponent")
                     vm.onActionUPScope()
-                }
+                },
+                keyFocusable = seekBarKeyFocusable,
             )
 
             TimeText(time = vm.during, Color.White, timeTextWidth = timeTextWidth)

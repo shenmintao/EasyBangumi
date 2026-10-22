@@ -71,8 +71,8 @@ fun CartoonCardWithCover(
         modifier = modifier
             .clip(RoundedCornerShape(if (v2Presentation) 8.dp else 4.dp))
             .border(
-                width = 2.dp,
-                color = if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                width = 3.dp,
+                color = if (isFocused) focusRingColor() else Color.Transparent,
                 shape = RoundedCornerShape(if (v2Presentation) 8.dp else 4.dp)
             )
             .onFocusChanged { focusState ->
@@ -224,8 +224,8 @@ fun CartoonStarCardWithCover(
             )
             .clip(RoundedCornerShape(if (v2Presentation) 8.dp else 4.dp))
             .border(
-                width = 2.dp,
-                color = if (isFocused && !selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                width = 3.dp,
+                color = if (isFocused && !selected) focusRingColor() else Color.Transparent,
                 shape = RoundedCornerShape(if (v2Presentation) 8.dp else 4.dp)
             )
             .run {
@@ -417,7 +417,7 @@ fun CartoonCardWithoutCover(
             .clip(RoundedCornerShape(4.dp))
             .border(
                 2.dp,
-                if (isFocusedNoCover) MaterialTheme.colorScheme.primary
+                if (isFocusedNoCover) focusRingColor()
                 else if (star) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.outline.copy(0.6f),
                 RoundedCornerShape(4.dp)

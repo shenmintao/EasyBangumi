@@ -47,6 +47,14 @@ jobs:
           fi
 
           tag_version="${BASH_REMATCH[1]}"
+
+          # This fork's history now contains upstream tags (6.x). Refuse to sign and publish a tag
+          # that does not contain the fork's TV support, e.g. an upstream tag pushed by accident.
+          if [[ ! -f app/src/main/java/com/heyanle/easybangumi4/utils/TvUtils.kt ]]; then
+            echo "::error::Tag ${tag_name} does not contain this fork's TV support (TvUtils.kt); refusing to publish it"
+            exit 1
+          fi
+
           app_version="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' buildSrc/src/main/java/com/heyanle/buildsrc/Android.kt | head -n 1)"
           version_code="$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' buildSrc/src/main/java/com/heyanle/buildsrc/Android.kt | head -n 1)"
 

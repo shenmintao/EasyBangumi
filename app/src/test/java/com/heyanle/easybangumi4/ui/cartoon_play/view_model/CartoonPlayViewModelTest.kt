@@ -108,6 +108,26 @@ class CartoonPlayViewModelTest {
     }
 
     @Test
+    fun tryPreviousMovesToPreviousSortedEpisodeAndStopsAtFirst() {
+        val one = Episode("episode-1", "第1集", 1)
+        val two = Episode("episode-2", "第2集", 2)
+        val line = wrapper(PlayLine("line-1", "线路一", arrayListOf(two, one)), compareBy { it.order })
+        val viewModel = CartoonPlayViewModel(enterFor("line-1", "episode-2").copy(adviceProgress = 45_000L))
+        viewModel.onCartoonInfoChange(cartoonInfo(), listOf(line))
+        var manualSelections = 0
+        viewModel.onManualPlaybackSelection = { manualSelections++ }
+
+        assertTrue(viewModel.tryPrevious())
+        assertEquals("episode-1", viewModel.curringPlayState.value?.episode?.id)
+        assertEquals(-1L, viewModel.adviceProgress)
+        assertEquals(1, manualSelections)
+
+        assertFalse(viewModel.tryPrevious())
+        assertEquals("episode-1", viewModel.curringPlayState.value?.episode?.id)
+        assertEquals(1, manualSelections)
+    }
+
+    @Test
     fun automaticFallbackKeepsProgressAndDoesNotResetAttemptChain() {
         val episode = Episode("episode-1", "第1集", 1)
         val first = wrapper(PlayLine("line-1", "线路一", arrayListOf(episode)), compareBy { it.order })

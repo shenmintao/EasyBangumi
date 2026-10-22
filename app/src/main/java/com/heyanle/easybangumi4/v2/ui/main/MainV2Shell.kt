@@ -3,9 +3,13 @@ package com.heyanle.easybangumi4.v2.ui.main
 import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -28,13 +32,27 @@ import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.heyanle.easy_i18n.R
 import com.heyanle.easybangumi4.ui.main.MainViewModel
+import com.heyanle.easybangumi4.ui.common.focusHighlight
+import com.heyanle.easybangumi4.ui.common.rememberIsTv
 import com.heyanle.easybangumi4.ui.main.homePageIndexOkkv
 import com.heyanle.easybangumi4.utils.isCurPadeMode
 import com.heyanle.easybangumi4.v2.ui.legacy.LegacyHistoryScreen
@@ -114,7 +132,7 @@ private val mainV2Pages = listOf(
     MainV2Page.More,
 )
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
 @Composable
 internal fun MainV2Shell() {
     val initialPage = homePageIndexOkkv.takeIf { it in mainV2Pages.indices } ?: 0
@@ -157,18 +175,50 @@ internal fun MainV2Shell() {
                 }
             }
         } else {
+            // TV：用独立的页码直接渲染当前页，避免 VerticalPager 在遥控器移动焦点时 bringIntoView
+            // 导致列表上下抖动；侧栏焦点移到哪一项就切到哪一页，从内容区按左键回到侧栏时
+            // 焦点落在当前页对应的项上，不会因为最近的一项是别的页而意外切页。
+            val isTv = rememberIsTv()
+            var tvPageIndex by rememberSaveable { mutableIntStateOf(initialPage) }
+            val selectedIndex = if (isTv) tvPageIndex else pagerState.currentPage
+            val railItemFocus = remember { List(mainV2Pages.size) { FocusRequester() } }
             Row {
                 NavigationRail(
                     containerColor = V2Tokens.Surface,
+                    modifier = if (isTv) {
+                        Modifier
+                            .focusProperties { enter = { railItemFocus[selectedIndex] } }
+                            .focusGroup()
+                    } else {
+                        Modifier
+                    },
                 ) {
                     mainV2Pages.forEachIndexed { index, page ->
                         NavigationRailItem(
-                            selected = pagerState.currentPage == index,
+                            selected = selectedIndex == index,
                             onClick = {
-                                scope.launch { pagerState.scrollToPage(index) }
+                                if (isTv) {
+                                    tvPageIndex = index
+                                } else {
+                                    scope.launch { pagerState.scrollToPage(index) }
+                                }
                                 homePageIndexOkkv = index
                             },
-                            icon = { page.icon(pagerState.currentPage == index) },
+                            modifier = if (isTv) {
+                                Modifier
+                                    .padding(vertical = 2.dp)
+                                    .focusRequester(railItemFocus[index])
+                                    .onFocusChanged { focusState ->
+                                        if (focusState.isFocused && tvPageIndex != index) {
+                                            tvPageIndex = index
+                                            homePageIndexOkkv = index
+                                        }
+                                    }
+                                    .focusHighlight(shape = RoundedCornerShape(16.dp))
+                            } else {
+                                Modifier
+                            },
+                            icon = { page.icon(selectedIndex == index) },
                             label = page.label,
                             alwaysShowLabel = false,
                             colors = NavigationRailItemDefaults.colors(
@@ -186,12 +236,22 @@ internal fun MainV2Shell() {
                         .fillMaxHeight()
                         .weight(1f),
                 ) {
-                    VerticalPager(
-                        state = pagerState,
-                        userScrollEnabled = false,
-                        modifier = Modifier.weight(1f),
-                    ) { pageIndex ->
-                        mainV2Pages[pageIndex].content()
+                    if (isTv) {
+                        // 保留各页的可保存状态（滚动位置等），切回来时与 Pager 行为一致
+                        val pageStateHolder = rememberSaveableStateHolder()
+                        Box(modifier = Modifier.weight(1f)) {
+                            pageStateHolder.SaveableStateProvider(tvPageIndex) {
+                                mainV2Pages[tvPageIndex].content()
+                            }
+                        }
+                    } else {
+                        VerticalPager(
+                            state = pagerState,
+                            userScrollEnabled = false,
+                            modifier = Modifier.weight(1f),
+                        ) { pageIndex ->
+                            mainV2Pages[pageIndex].content()
+                        }
                     }
                     viewModel.customBottomBar?.invoke()
                 }

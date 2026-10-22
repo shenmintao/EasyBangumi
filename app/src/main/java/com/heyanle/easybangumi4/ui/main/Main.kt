@@ -3,6 +3,7 @@ package com.heyanle.easybangumi4.ui.main
 import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,6 +39,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -156,7 +161,7 @@ val MainPageItems = listOf(
 var homePageIndexOkkv by okkv("home_page_index", 0)
 
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
 @Composable
 fun Main() {
 
@@ -220,10 +225,15 @@ fun Main() {
             var padPageIndex by remember { mutableStateOf(
                 if (homePageIndexOkkv >= 0 && homePageIndexOkkv < MainPageItems.size) homePageIndexOkkv else 0
             ) }
+            val railItemFocus = remember { List(MainPageItems.size) { FocusRequester() } }
             Row {
                 NavigationRail (
                     containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
-
+                    // 遥控器从内容区按左键回到侧栏时，焦点落在当前页对应的项上，
+                    // 而不是空间上最近的一项（焦点跟随切页，否则会意外切到别的页）。
+                    modifier = Modifier
+                        .focusProperties { enter = { railItemFocus[padPageIndex] } }
+                        .focusGroup(),
                     ){
                     MainPageItems.forEachIndexed { i, page ->
                         val select = padPageIndex == i
@@ -238,6 +248,7 @@ fun Main() {
                             alwaysShowLabel = false,
                             modifier = Modifier
                                 .padding(4.dp)
+                                .focusRequester(railItemFocus[i])
                                 .onFocusChanged { focusState ->
                                     // TV 遥控器焦点移动时自动切换页面
                                     if (focusState.isFocused) {

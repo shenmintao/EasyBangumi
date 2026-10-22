@@ -31,6 +31,7 @@ import com.heyanle.easybangumi4.theme.EasyTheme
 import com.heyanle.easybangumi4.ui.common.LoadingImage
 import com.heyanle.easybangumi4.ui.common.MoeDialogHost
 import com.heyanle.easybangumi4.ui.common.MoeSnackBar
+import com.heyanle.easybangumi4.ui.common.TvFocusIndicationProvider
 import com.heyanle.easybangumi4.utils.MediaUtils
 import com.heyanle.easybangumi4.utils.TvUtils
 import com.heyanle.okkv2.core.okkv
@@ -80,44 +81,47 @@ abstract class MainActivityHost : ComponentActivity() {
                 LocalWindowSizeController provides windowClass,
             ) {
                 EasyTheme {
-                    if (isMigrating) {
-                        AlertDialog(
-                            text = {
-                                Row {
-                                    LoadingImage()
-                                    Text(
-                                        text = stringResource(
-                                            id = com.heyanle.easy_i18n.R.string.migrating,
-                                        ),
-                                    )
-                                }
-                            },
-                            confirmButton = {},
-                            onDismissRequest = {},
-                        )
-                    }
-
-                    val focusManager = LocalFocusManager.current
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .let { modifier ->
-                                if (isTv) {
-                                    // TV 模式下不清除焦点，保持 D-pad 导航
-                                    modifier
-                                } else {
-                                    modifier.clickable(
-                                        indication = null,
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        onClick = { focusManager.clearFocus() },
-                                    )
-                                }
-                            },
-                    ) {
-                        SourcesHost {
-                            NavigationContent()
+                    // 电视上加深所有默认涟漪的聚焦态，遥控器焦点清晰可见
+                    TvFocusIndicationProvider(enabled = isTv) {
+                        if (isMigrating) {
+                            AlertDialog(
+                                text = {
+                                    Row {
+                                        LoadingImage()
+                                        Text(
+                                            text = stringResource(
+                                                id = com.heyanle.easy_i18n.R.string.migrating,
+                                            ),
+                                        )
+                                    }
+                                },
+                                confirmButton = {},
+                                onDismissRequest = {},
+                            )
                         }
-                        MoeSnackBar(Modifier.statusBarsPadding())
+
+                        val focusManager = LocalFocusManager.current
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .let { modifier ->
+                                    if (isTv) {
+                                        // TV 模式下不清除焦点，保持 D-pad 导航
+                                        modifier
+                                    } else {
+                                        modifier.clickable(
+                                            indication = null,
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            onClick = { focusManager.clearFocus() },
+                                        )
+                                    }
+                                },
+                        ) {
+                            SourcesHost {
+                                NavigationContent()
+                            }
+                            MoeSnackBar(Modifier.statusBarsPadding())
+                        }
                     }
                 }
             }

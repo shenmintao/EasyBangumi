@@ -146,6 +146,8 @@ import com.heyanle.easybangumi4.ui.common.DetailedContainer
 import com.heyanle.easybangumi4.ui.common.EasyMutiSelectionDialog
 import com.heyanle.easybangumi4.ui.common.ErrorPage
 import com.heyanle.easybangumi4.ui.common.LoadingPage
+import com.heyanle.easybangumi4.ui.common.rememberIsTv
+import com.heyanle.easybangumi4.ui.common.focusHighlight
 import com.heyanle.easybangumi4.ui.common.OkImage
 import com.heyanle.easybangumi4.ui.common.moeSnackBar
 import com.heyanle.easybangumi4.ui.common.proc.SortColumn
@@ -165,6 +167,7 @@ import loli.ball.easyplayer2.ControlViewModel
 import loli.ball.easyplayer2.ControlViewModelFactory
 import loli.ball.easyplayer2.EasyPlayerScaffoldBase
 import loli.ball.easyplayer2.EasyPlayerStateSync
+import loli.ball.easyplayer2.dpadMediaKeys
 import kotlinx.coroutines.launch
 
 internal object CartoonPlayV2TestTags {
@@ -527,6 +530,7 @@ private fun PlaybackDetailV2Content(
     // Own the native danmaku view at the page level. AndroidView holders are allowed to come and
     // go during configuration changes without releasing the DFM clock or its prepared item set.
     val danmakuRenderer = remember { DfmDanmakuRenderer() }
+    val isTv = rememberIsTv()
 
     DisposableEffect(Unit) {
         onDispose { playingVM.onExit() }
@@ -550,7 +554,14 @@ private fun PlaybackDetailV2Content(
     EasyPlayerScaffoldBase(
         modifier = Modifier
             .fillMaxSize()
-            .let { if (settingPreferences.playerBottomNavigationBarPadding.get()) it.navigationBarsPadding() else it },
+            .let { if (settingPreferences.playerBottomNavigationBarPadding.get()) it.navigationBarsPadding() else it }
+            // 遥控器媒体键：焦点在播放器或详情区都可以控制播放
+            .dpadMediaKeys(
+                vm = controlVM,
+                enabled = isTv,
+                onNext = { playVM.tryNext() },
+                onPrevious = { playVM.tryPrevious() },
+            ),
         needSync = false,
         vm = controlVM,
         isPadMode = isPad,
@@ -1197,6 +1208,12 @@ internal fun V2MediaIdentity(cartoon: CartoonInfo) {
         modifier = Modifier
             .fillMaxWidth()
             .testTag(CartoonPlayV2TestTags.MEDIA_IDENTITY)
+            // 没有涟漪指示，遥控器聚焦时需要单独的描边
+            .focusHighlight(
+                shape = RoundedCornerShape(12.dp),
+                focusedBgColor = Color.White,
+                focusedBgAlpha = 0.08f,
+            )
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,

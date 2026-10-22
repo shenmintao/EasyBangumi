@@ -19,3 +19,5 @@ local.properties
 *.keystore
 /dandanplay.properties
 /onedrive.properties
+# Kotlin 2.x Gradle plugin session data
+.kotlin/

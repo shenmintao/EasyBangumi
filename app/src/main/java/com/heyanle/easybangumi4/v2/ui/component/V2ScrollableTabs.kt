@@ -3,6 +3,7 @@ package com.heyanle.easybangumi4.v2.ui.component
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
@@ -14,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.heyanle.easybangumi4.ui.common.TabIndicator
+import com.heyanle.easybangumi4.ui.common.focusHighlight
 import com.heyanle.easybangumi4.v2.theme.V2Theme
 import com.heyanle.easybangumi4.v2.theme.V2Tokens
 
@@ -46,6 +48,8 @@ internal fun V2ScrollableTabs(
             Tab(
                 selected = index == safeIndex,
                 onClick = { onSelected(index) },
+                // 遥控器焦点描边
+                modifier = Modifier.focusHighlight(shape = RoundedCornerShape(8.dp)),
                 text = {
                     V2TabLabelWithBadge(
                         label = label,

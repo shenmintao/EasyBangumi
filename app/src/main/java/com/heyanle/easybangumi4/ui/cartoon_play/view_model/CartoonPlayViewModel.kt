@@ -251,6 +251,32 @@ class CartoonPlayViewModel(
 
     }
 
+    /** 切到当前线路的上一集（遥控器「上一曲」媒体键），没有上一集时返回 false */
+    fun tryPrevious(): Boolean {
+        val current = _curringPlayStatus.value ?: return false
+        val latestLine = latestPlayLines.firstOrNull {
+            it.playLine.id == current.playLine.playLine.id
+        } ?: current.playLine
+        val episodes = latestLine.sortedEpisodeList
+        val currentIndex = episodes.indexOfFirst { it.id == current.episode.id }
+        if (currentIndex <= 0) {
+            return false
+        }
+        adviceProgress = -1L
+        historyResumePending = false
+        onManualPlaybackSelection?.invoke()
+        selectLineById(latestLine.playLine.id)
+        _curringPlayStatus.update {
+            CartoonPlayState(
+                current.cartoonSummary,
+                latestLine,
+                episodes[currentIndex - 1],
+                current.cartoon,
+            )
+        }
+        return true
+    }
+
     fun hasNext(): Boolean {
         val current = _curringPlayStatus.value ?: return false
         val latestLine = latestPlayLines.firstOrNull {

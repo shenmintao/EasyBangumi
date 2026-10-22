@@ -57,6 +57,7 @@ import com.heyanle.easybangumi4.ui.common.EasyMutiSelectionDialog
 import com.heyanle.easybangumi4.ui.common.ErrorPage
 import com.heyanle.easybangumi4.ui.common.LoadingPage
 import com.heyanle.easybangumi4.ui.common.moeSnackBar
+import com.heyanle.easybangumi4.ui.common.rememberIsTv
 import com.heyanle.easybangumi4.utils.isCurPadeMode
 import com.heyanle.easybangumi4.utils.logi
 import com.heyanle.easybangumi4.utils.openUrl
@@ -66,6 +67,7 @@ import loli.ball.easyplayer2.ControlViewModel
 import loli.ball.easyplayer2.ControlViewModelFactory
 import loli.ball.easyplayer2.EasyPlayerScaffoldBase
 import loli.ball.easyplayer2.EasyPlayerStateSync
+import loli.ball.easyplayer2.dpadMediaKeys
 
 /**
  * Created by heyanle on 2023/12/17.
@@ -372,6 +374,7 @@ fun CartoonPlay(
     onSave: (Triple<CartoonInfo, PlayLineWrapper, List<Episode>>) -> Unit
 ) {
     val nav = LocalNavController.current
+    val isTv = rememberIsTv()
 
 
     DisposableEffect(key1 = Unit) {
@@ -424,7 +427,14 @@ fun CartoonPlay(
                 if (settingPreferences.playerBottomNavigationBarPadding.get()) {
                     it.navigationBarsPadding()
                 } else it
-            },
+            }
+            // 遥控器媒体键：焦点在播放器或详情区都可以控制播放
+            .dpadMediaKeys(
+                vm = controlVM,
+                enabled = isTv,
+                onNext = { playVM.tryNext() },
+                onPrevious = { playVM.tryPrevious() },
+            ),
         needSync = false,
         vm = controlVM,
         isPadMode = isPad,

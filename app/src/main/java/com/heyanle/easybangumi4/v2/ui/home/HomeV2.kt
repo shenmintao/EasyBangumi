@@ -72,6 +72,8 @@ import com.heyanle.easybangumi4.plugin.source.js.source.getIconWithAsyncOrDrawab
 import com.heyanle.easybangumi4.ui.common.LoadingPage
 import com.heyanle.easybangumi4.ui.common.EmptyPage
 import com.heyanle.easybangumi4.ui.common.OkImage
+import com.heyanle.easybangumi4.ui.common.focusHighlight
+import com.heyanle.easybangumi4.ui.common.rememberIsTv
 import com.heyanle.easybangumi4.v2.ui.component.V2ScrollableTabs
 import com.heyanle.easybangumi4.ui.common.page.CartoonPageUI
 import com.heyanle.easybangumi4.ui.common.page.CartoonPagePresentation
@@ -95,6 +97,8 @@ internal fun HomeV2() {
     val navController = LocalNavController.current
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     var showSourceSelector by remember { mutableStateOf(false) }
+    // TV 上焦点移动带动的滚动不联动顶栏，避免列表抖动
+    val isTv = rememberIsTv()
 
     if (showSourceSelector) {
         HomeSourceSelectorV2(
@@ -161,7 +165,7 @@ internal fun HomeV2() {
                             .fillMaxWidth()
                             .weight(1f)
                             .let { modifier ->
-                                if (state.isShowLabel) modifier else modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
+                                if (state.isShowLabel || isTv) modifier else modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
                             },
                         transitionSpec = {
                             fadeIn(tween(durationMillis = 300, delayMillis = 300)) togetherWith
@@ -224,7 +228,7 @@ private fun HomeTopAppBarV1Copy(
             scrolledContainerColor = V2Tokens.SurfaceMuted,
         ),
         navigationIcon = {
-            IconButton(onClick = onSourceClick) {
+            IconButton(onClick = onSourceClick, modifier = Modifier.focusHighlight()) {
             Icon(
                 imageVector = Icons.Filled.SwapHoriz,
                 contentDescription = "切换番源",
@@ -241,7 +245,7 @@ private fun HomeTopAppBarV1Copy(
             )
         },
         actions = {
-            IconButton(onClick = onSearchClick) {
+            IconButton(onClick = onSearchClick, modifier = Modifier.focusHighlight()) {
             Icon(
                 imageVector = Icons.Filled.Search,
                 contentDescription = "搜索",

@@ -18,7 +18,8 @@ import androidx.compose.ui.unit.dp
 
 /**
  * TV 焦点高亮修饰符
- * 为组件添加焦点高亮效果：聚焦时显示边框和半透明背景
+ * 为组件添加焦点高亮效果：聚焦时显示边框和半透明背景。
+ * 需要放在 clickable / focusable 之前，才能观察到对应控件的焦点。
  *
  * @param shape 高亮形状，默认为 CircleShape
  * @param borderWidth 边框宽度，默认为 2.dp
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
  * @param focusedBgColor 聚焦时背景颜色，默认为 null（使用 primary 色），
  *                       播放器等深色背景场景可传入 Color.White
  * @param unfocusedBgColor 未聚焦时的背景颜色，默认为 Color.Transparent
+ * @param borderColor 聚焦时的边框颜色，默认为 null（[focusRingColor]：主题色对比度不足时自动改用前景色）
  */
 fun Modifier.focusHighlight(
     shape: Shape = CircleShape,
@@ -33,16 +35,17 @@ fun Modifier.focusHighlight(
     focusedBgAlpha: Float = 0.15f,
     focusedBgColor: Color? = null,
     unfocusedBgColor: Color = Color.Transparent,
+    borderColor: Color? = null,
 ): Modifier = composed {
     var isFocused by remember { mutableStateOf(false) }
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val bgColor = focusedBgColor ?: primaryColor
+    val ringColor = borderColor ?: focusRingColor()
+    val bgColor = focusedBgColor ?: MaterialTheme.colorScheme.primary
 
     this
         .onFocusChanged { isFocused = it.isFocused }
         .border(
             width = borderWidth,
-            color = if (isFocused) primaryColor else Color.Transparent,
+            color = if (isFocused) ringColor else Color.Transparent,
             shape = shape
         )
         .background(

@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -101,6 +102,22 @@ class ControlViewModel(
 
     private var lastHideJob: Job? = null
     private var loopJob: Job? = null
+
+    // ---------------- 电视遥控器 ----------------
+
+    /** 遥控器拖动进度条的起点；非空时进度预览会额外显示相对起点的偏移 */
+    var seekPreviewOriginMs by mutableStateOf<Long?>(null)
+
+    /** 遥控器播放画面（[DpadVideoController]）的焦点 */
+    val dpadFocusRequester = FocusRequester()
+
+    /** 遥控器播放画面当前是否持有焦点 */
+    var isDpadSurfaceFocused by mutableStateOf(false)
+
+    internal var dpadInitialFocusRequested = false
+
+    /** 遥控器拖动进度条，方向键与快进/快退媒体键共用 */
+    val dpadSeekState: DpadSeekState by lazy { DpadSeekState(this, viewModelScope) }
 
     private var lastVideoSize: EasyVideoSize? = null
 
@@ -353,6 +370,18 @@ class ControlViewModel(
         // while the playback ViewModel remains alive. Detach only the output view here; stopping
         // would discard the resolved media connection and force the page layer to rebuild it.
         render.getViewOrNull()?.let(playerController::detach)
+    }
+
+    /** 显示控制浮层并重新开始自动隐藏计时（遥控器操作时保持显示） */
+    fun showControl() {
+        showControlWithHideDelay()
+    }
+
+    /** 立即隐藏控制浮层 */
+    fun hideControl() {
+        lastHideJob?.cancel()
+        lastHideJob = null
+        isNormalLockedControlShow = false
     }
 
     private fun showControlWithHideDelay() {

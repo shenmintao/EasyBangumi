@@ -132,9 +132,12 @@ fun EasyPlayer(
             }
         },
         foreground = {
-            Box(modifier = Modifier.fillMaxSize()) {
-                control?.invoke(vm)
-                videoFloat?.invoke(vm)
+            // 控制层与浮层（选集/倍速等侧边面板）共用遥控器的播放画面焦点入口
+            CompositionLocalProvider(LocalDpadFocusRequester provides vm.dpadFocusRequester) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    control?.invoke(vm)
+                    videoFloat?.invoke(vm)
+                }
             }
         }
     )
